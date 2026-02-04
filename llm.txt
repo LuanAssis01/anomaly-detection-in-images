@@ -1,0 +1,211 @@
+================================================================================
+LABORATÓRIO DE DETECÇÃO DE ANOMALIAS EM IMAGENS - TCC
+================================================================================
+
+🎯 OBJETIVO
+-----------
+Comparar diferentes arquiteturas de deep learning (CNNs e Transformers) para 
+detecção de falsificações em imagens, gerando dados experimentais para artigo 
+científico de TCC.
+
+📊 MODELOS IMPLEMENTADOS
+-------------------------
+1. ResNet-50       - CNN clássica pré-treinada (baseline)
+2. ResNet-101      - CNN mais profunda
+3. ViT             - Vision Transformer (google/vit-base-patch16-224)
+4. CvT-13          - Convolutional Vision Transformer (leve)
+5. CvT-21          - Convolutional Vision Transformer (médio)
+6. CvT-W24         - Convolutional Vision Transformer (pesado)
+7. DINOv2          - Self-supervised Vision Transformer
+
+🗂️ ESTRUTURA DO PROJETO
+------------------------
+cvt-test/
+├── data/                    # Dataset de imagens
+│   ├── train_images/
+│   │   ├── authentic/      # Imagens autênticas
+│   │   └── forged/         # Imagens falsificadas
+│   ├── train_masks/        # Máscaras de segmentação
+│   └── test_images/
+├── src/                     # Scripts principais
+│   ├── train.py            # Treinamento dos modelos
+│   ├── evaluate.py         # Avaliação e métricas
+│   ├── analysis_notebook.py # Análise comparativa
+│   └── app.py              # Demo interativa
+├── models/                  # Implementações dos modelos
+│   ├── cnn_model.py        # ResNet
+│   ├── vit_model.py        # Vision Transformer
+│   ├── cvt_model.py        # CvT (3 variantes)
+│   └── dino_model.py       # DINOv2
+├── utils/                   # Utilitários
+│   ├── dataset.py          # Dataset e DataLoader
+│   ├── metrics.py          # Métricas de avaliação
+│   └── visualization.py    # Visualizações
+├── configs/                 # Configurações
+│   └── config.py           # Parâmetros globais
+├── results/                 # Resultados dos experimentos
+├── checkpoints/             # Modelos treinados
+├── test.py                  # Teste de ambiente
+├── requirements.txt         # Dependências
+├── start.sh / start.bat     # Scripts de inicialização
+└── llm.txt                  # Este arquivo
+
+🚀 INÍCIO RÁPIDO
+----------------
+
+1. INSTALAR DEPENDÊNCIAS:
+   pip install -r requirements.txt
+
+2. TESTAR AMBIENTE:
+   python test.py
+
+3. TREINAR MODELOS:
+   
+   # Todos os modelos (recomendado para TCC):
+   python src/train.py --model all --epochs 50
+   
+   # Modelo específico:
+   python src/train.py --model cvt21 --epochs 50
+   
+   # Opções disponíveis:
+   --model resnet50      # ResNet-50
+   --model resnet101     # ResNet-101
+   --model vit           # Vision Transformer
+   --model cvt13         # CvT-13 (leve)
+   --model cvt21         # CvT-21 (médio, recomendado)
+   --model cvt_w24       # CvT-W24 (pesado)
+   --model dinov2        # DINOv2
+
+4. AVALIAR MODELOS:
+   python src/evaluate.py --model all --visualize
+
+5. ANÁLISE COMPARATIVA:
+   python src/analysis_notebook.py
+
+6. DEMO INTERATIVA:
+   python src/app.py
+
+📈 MÉTRICAS AVALIADAS
+---------------------
+- Acurácia (Accuracy)
+- Precisão (Precision)
+- Recall
+- F1-Score
+- Especificidade
+- ROC-AUC
+- PR-AUC
+- Matriz de Confusão
+- IoU (para segmentação, se aplicável)
+
+🔬 METODOLOGIA PARA O TCC
+--------------------------
+1. COLETA DE DADOS
+   - Dataset balanceado de imagens autênticas e falsificadas
+   - Máscaras de segmentação para regiões manipuladas
+   - Split: 80% treino, 20% validação
+
+2. TREINAMENTO
+   - Data augmentation: flip, rotação, brilho, contraste
+   - Otimizador: Adam (lr=1e-4)
+   - Loss: CrossEntropyLoss
+   - Early stopping baseado em validation accuracy
+   - Batch size: 16 (ajustável conforme GPU)
+
+3. AVALIAÇÃO
+   - Métricas em conjunto de validação
+   - Análise de erros (FP, FN)
+   - Comparação estatística entre modelos
+   - Visualização de predições
+
+4. ANÁLISE COMPARATIVA
+   - Curvas de aprendizado
+   - Tempo de treinamento
+   - Número de parâmetros
+   - Trade-off acurácia vs eficiência
+   - Análise qualitativa das predições
+
+📝 RESULTADOS ESPERADOS
+-----------------------
+Os resultados são salvos automaticamente em:
+- results/*.json                  # Métricas numéricas
+- results/*_history.json          # Histórico de treinamento
+- results/*_confusion_matrix.png  # Matrizes de confusão
+- results/training_curves*.png    # Gráficos de treino
+- results/metrics_comparison.png  # Comparação entre modelos
+- results/relatorio_tcc.txt       # Relatório formatado
+- checkpoints/*_best.pth          # Pesos dos melhores modelos
+
+🎓 HIPÓTESES DO TCC
+-------------------
+H1: Transformers (ViT, CvT, DINOv2) superam CNNs tradicionais na detecção 
+    de anomalias sutis em imagens
+    
+H2: CvT oferece melhor trade-off entre acurácia e eficiência computacional 
+    ao combinar convoluções com self-attention
+    
+H3: DINOv2, com aprendizado auto-supervisionado, generaliza melhor com 
+    poucos dados rotulados
+    
+H4: Maior número de parâmetros nem sempre resulta em melhor desempenho 
+    (CvT-W24 vs CvT-21)
+
+💡 DICAS PARA O ARTIGO
+----------------------
+- Compare ResNet (baseline CNN) com todos os Transformers
+- Analise o impacto de diferentes tamanhos de CvT (13, 21, W24)
+- Discuta o mecanismo de atenção e sua importância
+- Inclua visualizações das regiões de atenção (se implementar)
+- Analise casos de erro: quando e por que os modelos falham
+- Discuta limitações computacionais (tempo, memória)
+- Sugira trabalhos futuros: ensemble, fine-tuning específico, etc.
+
+🛠️ CONFIGURAÇÕES AJUSTÁVEIS
+----------------------------
+Edite configs/config.py para alterar:
+- BATCH_SIZE: 16 (reduzir se GPU tiver pouca memória)
+- NUM_EPOCHS: 50
+- LEARNING_RATE: 1e-4
+- IMAGE_SIZE: 224
+- DEVICE: 'cuda' ou 'cpu'
+
+⚠️ REQUISITOS COMPUTACIONAIS
+-----------------------------
+- GPU: Recomendado 8GB+ VRAM (RTX 3070 ou superior)
+- RAM: 16GB+
+- Espaço: ~10GB para modelos e resultados
+- Tempo: ~2-4 horas por modelo (dependendo do hardware)
+
+📚 REFERÊNCIAS IMPORTANTES
+--------------------------
+- ViT: "An Image is Worth 16x16 Words" (Dosovitskiy et al., 2020)
+- CvT: "CvT: Introducing Convolutions to Vision Transformers" (Wu et al., 2021)
+- DINOv2: "DINOv2: Learning Robust Visual Features" (Oquab et al., 2023)
+- ResNet: "Deep Residual Learning" (He et al., 2015)
+
+🔄 WORKFLOW COMPLETO
+--------------------
+1. python test.py                              # Verificar ambiente
+2. python src/train.py --model all --epochs 50 # Treinar todos
+3. python src/evaluate.py --model all          # Avaliar
+4. python src/analysis_notebook.py             # Análise
+5. Coletar gráficos e métricas de results/    # Para o TCC
+6. Escrever discussão baseada nos resultados  # Artigo
+
+🆘 TROUBLESHOOTING
+------------------
+- CUDA out of memory: Reduza BATCH_SIZE em config.py
+- Modelos não carregam: Execute python test.py
+- Erro de path: Certifique-se de estar no diretório raiz
+- Dataset vazio: Verifique se data/train_images existe
+
+📧 OBSERVAÇÕES FINAIS
+---------------------
+Este laboratório fornece uma base completa para seu TCC. Os resultados 
+gerados são adequados para análise científica. Personalize os experimentos 
+conforme necessário e documente todas as mudanças para o artigo.
+
+Boa sorte com seu TCC! 🎓
+
+================================================================================
+Última atualização: 2026-02-04
+================================================================================

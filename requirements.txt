@@ -1,0 +1,30 @@
+# Dependências principais do projeto
+# Deep Learning
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Transformers (ViT, CvT, DINOv2)
+transformers>=4.30.0
+
+# Processamento de imagens
+pillow>=9.0.0
+
+# Computação científica
+numpy>=1.24.0
+
+# Machine Learning e métricas
+scikit-learn>=1.2.0
+
+# Visualização
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilidades
+tqdm>=4.65.0
+
+# Jupyter (opcional, para análise interativa)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Para salvar e carregar resultados
+pandas>=2.0.0
