@@ -3,7 +3,7 @@ Vision Transformer (ViT) para detecção de falsificações
 """
 import torch
 import torch.nn as nn
-from transformers import ViTModel, ViTConfig
+from transformers import ViTModel as HFViTModel, ViTConfig
 
 class ViTModel(nn.Module):
     """
@@ -13,7 +13,7 @@ class ViTModel(nn.Module):
         super(ViTModel, self).__init__()
         
         # Carregar modelo pré-treinado
-        self.vit = ViTModel.from_pretrained(model_name)
+        self.vit = HFViTModel.from_pretrained(model_name)
         
         # Obter dimensão de saída do ViT
         self.hidden_size = self.vit.config.hidden_size

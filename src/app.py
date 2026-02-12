@@ -57,8 +57,16 @@ class ForgeryDetector:
             )
         
         # Carregar pesos
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+        
+        # Remover prefixo '_orig_mod.' adicionado por torch.compile()
+        state_dict = checkpoint['model_state_dict']
+        cleaned_state_dict = {}
+        for key, value in state_dict.items():
+            new_key = key.replace('_orig_mod.', '')
+            cleaned_state_dict[new_key] = value
+        
+        self.model.load_state_dict(cleaned_state_dict)
         self.model = self.model.to(self.device)
         self.model.eval()
         

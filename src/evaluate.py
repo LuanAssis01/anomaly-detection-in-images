@@ -15,6 +15,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
 from configs.config import *
+try:
+    from configs.config import USE_AMP
+except ImportError:
+    USE_AMP = True
 from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
 from utils.metrics import calculate_metrics
 from utils.visualization import plot_confusion_matrix, visualize_predictions
@@ -50,8 +54,16 @@ def load_model(model_type: str, checkpoint_path: str, device):
         raise ValueError(f"Modelo desconhecido: {model_type}")
     
     # Carregar pesos
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    # Remover prefixo '_orig_mod.' adicionado por torch.compile()
+    state_dict = checkpoint['model_state_dict']
+    cleaned_state_dict = {}
+    for key, value in state_dict.items():
+        new_key = key.replace('_orig_mod.', '')
+        cleaned_state_dict[new_key] = value
+    
+    model.load_state_dict(cleaned_state_dict)
     model = model.to(device)
     model.eval()
     
@@ -68,13 +80,16 @@ def evaluate_model(model, dataloader, device):
     all_probs = []
     all_images = []
     
+    use_amp = USE_AMP and torch.cuda.is_available()
+    
     with torch.no_grad():
         for images, labels, _ in tqdm(dataloader, desc='Avaliando'):
-            images = images.to(device)
-            labels = labels.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
             
-            # Forward pass
-            outputs = model(images)
+            # Forward pass com AMP
+            with torch.amp.autocast('cuda', enabled=use_amp):
+                outputs = model(images)
             probs = torch.softmax(outputs, dim=1)[:, 1]
             _, predicted = torch.max(outputs.data, 1)
             
@@ -130,37 +145,6 @@ def main():
     device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
     
-    # Dataset de teste
-    print("\nCarregando dataset de teste...")
-    # Como não temos test labels, vamos usar parte do train como teste
-    from torch.utils.data import random_split
-    
-    full_dataset = ForgeryDataset(
-        root_dir=TRAIN_DIR,
-        masks_dir=TRAIN_MASKS_DIR,
-        transform=get_transforms(IMAGE_SIZE, mode='val'),
-        mode='test'
-    )
-    
-    # 80% treino, 20% teste
-    train_size = int(0.8 * len(full_dataset))
-    test_size = len(full_dataset) - train_size
-    _, test_dataset = random_split(
-        full_dataset,
-        [train_size, test_size],
-        generator=torch.Generator().manual_seed(RANDOM_SEED)
-    )
-    
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=NUM_WORKERS,
-        collate_fn=custom_collate_fn
-    )
-    
-    print(f"Samples de teste: {len(test_dataset)}")
-    
     # Determinar modelos a avaliar
     if args.model == 'all':
         models_to_eval = ['resnet50', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
@@ -176,6 +160,36 @@ def main():
         if not os.path.exists(checkpoint_path):
             print(f"\n⚠ Checkpoint não encontrado para {model_type}: {checkpoint_path}")
             continue
+        
+        # Dataset de teste (com image_size específico do modelo)
+        model_image_size = MODEL_CONFIGS[model_type].get('image_size', IMAGE_SIZE)
+        print(f"\nCarregando dataset de teste ({model_image_size}x{model_image_size})...")
+        from torch.utils.data import random_split
+        
+        full_dataset = ForgeryDataset(
+            root_dir=TRAIN_DIR,
+            masks_dir=TRAIN_MASKS_DIR,
+            transform=get_transforms(model_image_size, mode='val'),
+            mode='test'
+        )
+        
+        train_size = int(0.8 * len(full_dataset))
+        test_size = len(full_dataset) - train_size
+        _, test_dataset = random_split(
+            full_dataset,
+            [train_size, test_size],
+            generator=torch.Generator().manual_seed(RANDOM_SEED)
+        )
+        
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=BATCH_SIZE,
+            shuffle=False,
+            num_workers=NUM_WORKERS,
+            collate_fn=custom_collate_fn
+        )
+        
+        print(f"Samples de teste: {len(test_dataset)}")
         
         # Carregar e avaliar
         model = load_model(model_type, checkpoint_path, device)

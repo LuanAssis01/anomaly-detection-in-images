@@ -18,6 +18,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
 from configs.config import *
+# Importar novos parâmetros com defaults seguros caso o config antigo não tenha
+try:
+    from configs.config import USE_AMP, GRADIENT_ACCUMULATION_STEPS, USE_COMPILE
+except ImportError:
+    USE_AMP = True
+    GRADIENT_ACCUMULATION_STEPS = 1
+    USE_COMPILE = True
 from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
 from utils.metrics import calculate_metrics, AverageMeter
 from models import CNNModel, ViTModel, CvTModel, DINOv2Model
@@ -27,36 +34,49 @@ def set_seed(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True  # Seguro com input fixo (224x224), ~10-20% mais rápido
 
-def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
-    """Treina por uma época"""
+def train_epoch(model, dataloader, criterion, optimizer, device, epoch, scaler=None, accumulation_steps=1):
+    """Treina por uma época com suporte a AMP e gradient accumulation"""
     model.train()
     
     losses = AverageMeter()
     accuracies = AverageMeter()
+    use_amp = scaler is not None
     
     pbar = tqdm(dataloader, desc=f'Epoch {epoch} - Train')
     
-    for images, labels, _ in pbar:
-        images = images.to(device)
-        labels = labels.to(device)
+    for step, (images, labels, _) in enumerate(pbar):
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
         
-        # Forward pass
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+        # Forward pass com AMP (mixed precision)
+        with torch.amp.autocast('cuda', enabled=use_amp):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss = loss / accumulation_steps  # Normalizar para gradient accumulation
         
-        # Backward pass
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        # Backward pass com GradScaler
+        if use_amp:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
+        
+        # Atualizar pesos a cada N steps (gradient accumulation)
+        if (step + 1) % accumulation_steps == 0 or (step + 1) == len(dataloader):
+            if use_amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)  # Mais rápido e usa menos memória
         
         # Métricas
         _, predicted = torch.max(outputs.data, 1)
         accuracy = (predicted == labels).float().mean().item() * 100
         
-        losses.update(loss.item(), images.size(0))
+        losses.update(loss.item() * accumulation_steps, images.size(0))  # Desnormalizar para log
         accuracies.update(accuracy, images.size(0))
         
         pbar.set_postfix({
@@ -66,8 +86,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
     
     return losses.avg, accuracies.avg
 
-def validate_epoch(model, dataloader, criterion, device):
-    """Valida o modelo"""
+def validate_epoch(model, dataloader, criterion, device, use_amp=False):
+    """Valida o modelo com suporte a AMP"""
     model.eval()
     
     losses = AverageMeter()
@@ -80,12 +100,13 @@ def validate_epoch(model, dataloader, criterion, device):
         pbar = tqdm(dataloader, desc='Validation')
         
         for images, labels, _ in pbar:
-            images = images.to(device)
-            labels = labels.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
             
-            # Forward pass
-            outputs = model(images)
-            loss = criterion(outputs, labels)
+            # Forward pass com AMP
+            with torch.amp.autocast('cuda', enabled=use_amp):
+                outputs = model(images)
+                loss = criterion(outputs, labels)
             
             # Métricas
             probs = torch.softmax(outputs, dim=1)[:, 1]  # Prob da classe "forged"
@@ -108,7 +129,7 @@ def validate_epoch(model, dataloader, criterion, device):
     
     return losses.avg, metrics
 
-def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int = BATCH_SIZE):
+def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int = BATCH_SIZE, accumulation_steps: int = GRADIENT_ACCUMULATION_STEPS):
     """
     Treina um modelo específico
     
@@ -130,11 +151,15 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
     
     # Dataset e DataLoader
+    # Usar image_size específico do modelo (ex: CvT-W24 usa 384) ou o padrão global
+    model_image_size = MODEL_CONFIGS[model_type].get('image_size', IMAGE_SIZE)
+    print(f"Image size: {model_image_size}x{model_image_size}")
+    
     print("\nCarregando dataset...")
     train_dataset = ForgeryDataset(
         root_dir=TRAIN_DIR,
         masks_dir=TRAIN_MASKS_DIR,
-        transform=get_transforms(IMAGE_SIZE, mode='train'),
+        transform=get_transforms(model_image_size, mode='train'),
         mode='train'
     )
     
@@ -197,6 +222,22 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     model = model.to(device)
     print(f"Parâmetros treináveis: {model.count_parameters():,}")
     
+    # torch.compile() — funde operações para execução mais rápida na GPU
+    if USE_COMPILE and hasattr(torch, 'compile'):
+        try:
+            model = torch.compile(model)
+            print("✓ torch.compile() ativado")
+        except Exception as e:
+            print(f"⚠ torch.compile() não disponível: {e}")
+    
+    # AMP — Mixed Precision (FP16) com GradScaler
+    use_amp = USE_AMP and torch.cuda.is_available()
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
+    if use_amp:
+        print("✓ AMP (Mixed Precision FP16) ativado")
+    if accumulation_steps > 1:
+        print(f"✓ Gradient Accumulation: {accumulation_steps} steps (batch efetivo = {batch_size * accumulation_steps})")
+    
     # Loss e optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
@@ -221,12 +262,13 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     for epoch in range(1, num_epochs + 1):
         # Treinar
         train_loss, train_acc = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch
+            model, train_loader, criterion, optimizer, device, epoch,
+            scaler=scaler, accumulation_steps=accumulation_steps
         )
         
         # Validar
         val_loss, val_metrics = validate_epoch(
-            model, val_loader, criterion, device
+            model, val_loader, criterion, device, use_amp=use_amp
         )
         
         val_acc = val_metrics['accuracy'] * 100
@@ -290,6 +332,8 @@ def main():
                       help='Número de épocas')
     parser.add_argument('--batch_size', type=int, default=BATCH_SIZE,
                       help='Tamanho do batch')
+    parser.add_argument('--accumulation_steps', type=int, default=GRADIENT_ACCUMULATION_STEPS,
+                      help='Steps de acumulação de gradiente (simula batch maior)')
     
     args = parser.parse_args()
     
@@ -303,7 +347,7 @@ def main():
         models_to_train = [args.model]
     
     for model_type in models_to_train:
-        train_model(model_type, args.epochs, args.batch_size)
+        train_model(model_type, args.epochs, args.batch_size, args.accumulation_steps)
 
 if __name__ == '__main__':
     main()

@@ -26,33 +26,35 @@ share/python-wheels/
 venv/
 ENV/
 env/
-.venv
+.venv/
 
-# PyCharm
+# IDEs
 .idea/
-
-# VS Code
 .vscode/
+*.swp
+*.swo
+*~
 
 # Jupyter Notebook
-.ipynb_checkpoints
+.ipynb_checkpoints/
 *.ipynb
 
-# Data files (large datasets)
-data/train_images/
-data/test_images/
-data/supplemental_images/
-*.csv
-!data/sample_submission.csv
+# Dataset (arquivos grandes)
+data/
 
-# Model checkpoints and weights
+# Model checkpoints e pesos (arquivos grandes)
 checkpoints/*.pth
+checkpoints/*.pt
+checkpoints/*.ckpt
+checkpoints/*.h5
+checkpoints/*.pkl
 !checkpoints/.gitkeep
-*.pt
-*.ckpt
-*.h5
-*.pkl
-*.pth
+
+# Resultados gerados
+results/*.png
+results/*.jpg
+results/*.json
+!results/.gitkeep
 
 # Logs
 logs/
@@ -60,22 +62,14 @@ logs/
 wandb/
 runs/
 
-# Results
-results/*.png
-results/*.jpg
-results/*.json
-!results/.gitkeep
-
 # OS files
 .DS_Store
 Thumbs.db
-*.swp
-*.swo
-*~
 
 # Temporary files
 *.tmp
 temp/
 tmp/
 
-data/
+# Gemini
+.gemini/
