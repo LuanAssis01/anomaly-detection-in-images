@@ -30,22 +30,23 @@ echo "OPÇÕES:"
 echo "======================================================================"
 echo ""
 echo "  1) Treinar todos os modelos (CNN, ViT, CvT, DINOv2)"
-echo "  2) Treinar apenas CNN (rápido)"
-echo "  3) Treinar apenas CvT (recomendado)"
-echo "  4) Treinar apenas DINOv2"
-echo "  5) Avaliar modelos treinados"
-echo "  6) Executar análise comparativa"
-echo "  7) Demo interativa"
-echo "  8) Sair"
+echo "  2) Treinar apenas ResNet-50 (rápido)"
+echo "  3) Treinar apenas ResNet-101"
+echo "  4) Treinar apenas CvT (recomendado)"
+echo "  5) Treinar apenas DINOv2"
+echo "  6) Avaliar modelos treinados"
+echo "  7) Executar análise comparativa"
+echo "  8) Demo interativa"
+echo "  9) Sair"
 echo ""
 
-read -p "Escolha uma opção [1-8]: " choice
+read -p "Escolha uma opção [1-9]: " choice
 
 case $choice in
     1)
         echo ""
         echo "Treinando todos os modelos..."
-        python src/train.py --model all --epochs 50
+        python src/train.py --model all --epochs 30
         ;;
     2)
         echo ""
@@ -54,30 +55,35 @@ case $choice in
         ;;
     3)
         echo ""
+        echo "Treinando ResNet-101..."
+        python src/train.py --model resnet101
+        ;;
+    4)
+        echo ""
         echo "Treinando CvT-21..."
         python src/train.py --model cvt21 --epochs 50
         ;;
-    4)
+    5)
         echo ""
         echo "Treinando DINOv2..."
         python src/train.py --model dinov2 --epochs 50
         ;;
-    5)
+    6)
         echo ""
         echo "Avaliando modelos..."
         python src/evaluate.py --model all --visualize
         ;;
-    6)
+    7)
         echo ""
         echo "Executando análise comparativa..."
         python src/analysis_notebook.py
         ;;
-    7)
+    8)
         echo ""
         echo "Iniciando demo..."
         python src/app.py
         ;;
-    8)
+    9)
         echo "Saindo..."
         exit 0
         ;;

@@ -14,11 +14,11 @@ RESULTS_DIR = os.path.join(BASE_DIR, 'results')
 CHECKPOINTS_DIR = os.path.join(BASE_DIR, 'checkpoints')
 
 # Parâmetros de treinamento
-BATCH_SIZE = 16
-NUM_EPOCHS = 20
+BATCH_SIZE = 32
+NUM_EPOCHS = 30
 LEARNING_RATE = 1e-4
 DEVICE = 'cuda'  # 'cuda' ou 'cpu'
-NUM_WORKERS = 8  # Workers paralelos para carregar dados (0 = sequencial, lento)
+NUM_WORKERS = 12  # Workers paralelos para carregar dados (0 = sequencial, lento)
 
 # Otimizações de performance (GPU)
 USE_AMP = True                    # Mixed Precision (FP16) — ~2x mais rápido com Tensor Cores
@@ -26,7 +26,7 @@ GRADIENT_ACCUMULATION_STEPS = 1   # Acumular gradientes (>1 simula batch maior s
 USE_COMPILE = True                # torch.compile() — funde operações para execução mais rápida
 
 # Parâmetros das imagens
-IMAGE_SIZE = 224
+IMAGE_SIZE = 256
 NUM_CLASSES = 2  # authentic vs forged
 
 # Configurações dos modelos
@@ -75,11 +75,22 @@ AUGMENTATION = {
     'vertical_flip': 0.3,
     'rotation_degrees': 15,
     'brightness': 0.2,
-    'contrast': 0.2
+    'contrast': 0.2,
+    'saturation': 0.15,
+    'hue': 0.05,
 }
 
 # Configurações de fine-tuning específicas por modelo
 FINETUNE_CONFIGS = {
+    'resnet101': {
+        'phase1_epochs': 10,
+        'phase1_lr': 1e-3,
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 5e-6,
+        'phase2_classifier_lr': 1e-4,
+        'warmup_epochs': 5,
+        'weight_decay': 0.01,
+    },
     'vit': {
         # Fase 1: treinar só a cabeça (backbone congelado)
         'phase1_epochs': 10,

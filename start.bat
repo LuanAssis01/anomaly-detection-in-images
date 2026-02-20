@@ -24,46 +24,51 @@ echo OPÇÕES:
 echo ======================================================================
 echo.
 echo   1) Treinar todos os modelos (CNN, ViT, CvT, DINOv2)
-echo   2) Treinar apenas CNN (rápido)
-echo   3) Treinar apenas CvT (recomendado)
-echo   4) Treinar apenas DINOv2
-echo   5) Avaliar modelos treinados
-echo   6) Executar análise comparativa
-echo   7) Demo interativa
-echo   8) Sair
+echo   2) Treinar apenas ResNet-50 (rápido)
+echo   3) Treinar apenas ResNet-101
+echo   4) Treinar apenas CvT (recomendado)
+echo   5) Treinar apenas DINOv2
+echo   6) Avaliar modelos treinados
+echo   7) Executar análise comparativa
+echo   8) Demo interativa
+echo   9) Sair
 echo.
 
-set /p choice="Escolha uma opção [1-8]: "
+set /p choice="Escolha uma opção [1-9]: "
 
 if "%choice%"=="1" (
     echo.
     echo Treinando todos os modelos...
-    python src/train.py --model all --epochs 50
+    python src/train.py --model all --epochs 30
 ) else if "%choice%"=="2" (
     echo.
     echo Treinando ResNet-50...
     python src/train.py --model resnet50 --epochs 30
 ) else if "%choice%"=="3" (
     echo.
+    echo Treinando ResNet-101...
+    python src/train.py --model resnet101
+) else if "%choice%"=="4" (
+    echo.
     echo Treinando CvT-21...
     python src/train.py --model cvt21 --epochs 50
-) else if "%choice%"=="4" (
+) else if "%choice%"=="5" (
     echo.
     echo Treinando DINOv2...
     python src/train.py --model dinov2 --epochs 50
-) else if "%choice%"=="5" (
+) else if "%choice%"=="6" (
     echo.
     echo Avaliando modelos...
     python src/evaluate.py --model all --visualize
-) else if "%choice%"=="6" (
+) else if "%choice%"=="7" (
     echo.
     echo Executando análise comparativa...
     python src/analysis_notebook.py
-) else if "%choice%"=="7" (
+) else if "%choice%"=="8" (
     echo.
     echo Iniciando demo...
     python src/app.py
-) else if "%choice%"=="8" (
+) else if "%choice%"=="9" (
     echo Saindo...
     exit /b 0
 ) else (

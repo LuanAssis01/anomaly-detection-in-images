@@ -147,7 +147,7 @@ def main():
     
     # Determinar modelos a avaliar
     if args.model == 'all':
-        models_to_eval = ['resnet50', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
+        models_to_eval = ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
     else:
         models_to_eval = [args.model]
     

@@ -402,6 +402,12 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
             model_name=MODEL_CONFIGS['dinov2']['model_name'],
             num_classes=NUM_CLASSES
         )
+    elif model_type in ['resnet50', 'resnet101']:
+        model = CNNModel(
+            num_classes=NUM_CLASSES,
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
+            pretrained=True
+        )
     else:
         raise ValueError(f"Modelo {model_type} não tem configuração de fine-tuning")
     
@@ -614,7 +620,7 @@ def main():
     
     # Treinar modelos
     if args.model == 'all':
-        models_to_train = ['resnet50', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
+        models_to_train = ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
     else:
         models_to_train = [args.model]
     
