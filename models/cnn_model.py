@@ -67,3 +67,10 @@ class CNNModel(nn.Module):
         """Descongela o backbone"""
         for param in self.backbone.parameters():
             param.requires_grad = True
+    
+    def get_param_groups(self, backbone_lr, classifier_lr):
+        """Retorna grupos de parâmetros com learning rates diferenciados"""
+        return [
+            {'params': self.backbone.parameters(), 'lr': backbone_lr},
+            {'params': self.classifier.parameters(), 'lr': classifier_lr},
+        ]

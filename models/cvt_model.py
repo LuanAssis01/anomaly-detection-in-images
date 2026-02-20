@@ -72,3 +72,10 @@ class CvTModel(nn.Module):
         """Descongela o backbone"""
         for param in self.cvt.parameters():
             param.requires_grad = True
+    
+    def get_param_groups(self, backbone_lr, classifier_lr):
+        """Retorna grupos de parâmetros com learning rates diferenciados"""
+        return [
+            {'params': self.cvt.parameters(), 'lr': backbone_lr},
+            {'params': self.classifier.parameters(), 'lr': classifier_lr},
+        ]

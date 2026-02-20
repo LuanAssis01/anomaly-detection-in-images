@@ -63,3 +63,10 @@ class DINOv2Model(nn.Module):
         """Descongela o backbone"""
         for param in self.dino.parameters():
             param.requires_grad = True
+    
+    def get_param_groups(self, backbone_lr, classifier_lr):
+        """Retorna grupos de parâmetros com learning rates diferenciados"""
+        return [
+            {'params': self.dino.parameters(), 'lr': backbone_lr},
+            {'params': self.classifier.parameters(), 'lr': classifier_lr},
+        ]

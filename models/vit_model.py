@@ -62,3 +62,10 @@ class ViTModel(nn.Module):
         """Descongela o backbone para fine-tuning completo"""
         for param in self.vit.parameters():
             param.requires_grad = True
+    
+    def get_param_groups(self, backbone_lr, classifier_lr):
+        """Retorna grupos de parâmetros com learning rates diferenciados"""
+        return [
+            {'params': self.vit.parameters(), 'lr': backbone_lr},
+            {'params': self.classifier.parameters(), 'lr': classifier_lr},
+        ]

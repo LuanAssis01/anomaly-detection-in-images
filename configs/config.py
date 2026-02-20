@@ -18,7 +18,7 @@ BATCH_SIZE = 16
 NUM_EPOCHS = 20
 LEARNING_RATE = 1e-4
 DEVICE = 'cuda'  # 'cuda' ou 'cpu'
-NUM_WORKERS = 4  # Workers paralelos para carregar dados (0 = sequencial, lento)
+NUM_WORKERS = 8  # Workers paralelos para carregar dados (0 = sequencial, lento)
 
 # Otimizações de performance (GPU)
 USE_AMP = True                    # Mixed Precision (FP16) — ~2x mais rápido com Tensor Cores
@@ -76,6 +76,57 @@ AUGMENTATION = {
     'rotation_degrees': 15,
     'brightness': 0.2,
     'contrast': 0.2
+}
+
+# Configurações de fine-tuning específicas por modelo
+FINETUNE_CONFIGS = {
+    'vit': {
+        # Fase 1: treinar só a cabeça (backbone congelado)
+        'phase1_epochs': 10,
+        'phase1_lr': 1e-3,
+        # Fase 2: fine-tuning completo com lr diferenciado
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 2e-6,
+        'phase2_classifier_lr': 1e-4,
+        'warmup_epochs': 5,
+        'weight_decay': 0.01,
+    },
+    'cvt13': {
+        'phase1_epochs': 10,
+        'phase1_lr': 1e-3,
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 5e-6,   # CvT tem convoluções, responde melhor a fine-tuning
+        'phase2_classifier_lr': 1e-4,
+        'warmup_epochs': 5,
+        'weight_decay': 0.01,
+    },
+    'cvt21': {
+        'phase1_epochs': 10,
+        'phase1_lr': 1e-3,
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 5e-6,
+        'phase2_classifier_lr': 1e-4,
+        'warmup_epochs': 5,
+        'weight_decay': 0.01,
+    },
+    'cvt_w24': {
+        'phase1_epochs': 10,
+        'phase1_lr': 1e-3,
+        'phase2_epochs': 30,           # Modelo maior, menos épocas para evitar overfitting
+        'phase2_backbone_lr': 3e-6,
+        'phase2_classifier_lr': 5e-5,
+        'warmup_epochs': 5,
+        'weight_decay': 0.01,
+    },
+    'dinov2': {
+        'phase1_epochs': 10,
+        'phase1_lr': 1e-3,
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 1e-6,   # DINOv2 tem features muito fortes, lr ultra-baixo
+        'phase2_classifier_lr': 5e-5,
+        'warmup_epochs': 5,
+        'weight_decay': 0.01,
+    },
 }
 
 # Random seed para reprodutibilidade

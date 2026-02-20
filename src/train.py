@@ -3,6 +3,7 @@ Script de treinamento para todos os modelos
 """
 import os
 import sys
+import math
 import json
 import torch
 import torch.nn as nn
@@ -25,6 +26,10 @@ except ImportError:
     USE_AMP = True
     GRADIENT_ACCUMULATION_STEPS = 1
     USE_COMPILE = True
+try:
+    from configs.config import FINETUNE_CONFIGS
+except ImportError:
+    FINETUNE_CONFIGS = {}
 from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
 from utils.metrics import calculate_metrics, AverageMeter
 from models import CNNModel, ViTModel, CvTModel, DINOv2Model
@@ -323,6 +328,273 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     
     return model, history
 
+
+def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
+    """
+    Treina um modelo com fine-tuning em 2 fases:
+      Fase 1: backbone congelado, treina só o classificador
+      Fase 2: backbone descongelado, fine-tuning com lr diferenciado + cosine scheduler
+    """
+    ft_cfg = FINETUNE_CONFIGS[model_type]
+    total_epochs = ft_cfg['phase1_epochs'] + ft_cfg['phase2_epochs']
+    
+    print(f"\n{'='*60}")
+    print(f"Fine-tuning modelo: {MODEL_CONFIGS[model_type]['name']}")
+    print(f"  Fase 1: {ft_cfg['phase1_epochs']} épocas (backbone congelado, lr={ft_cfg['phase1_lr']})")
+    print(f"  Fase 2: {ft_cfg['phase2_epochs']} épocas (fine-tuning completo, backbone_lr={ft_cfg['phase2_backbone_lr']}, classifier_lr={ft_cfg['phase2_classifier_lr']})")
+    print(f"{'='*60}\n")
+    
+    # Configurar device
+    device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
+    print(f"Device: {device}")
+    
+    # Criar diretórios
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
+    
+    # Dataset e DataLoader
+    model_image_size = MODEL_CONFIGS[model_type].get('image_size', IMAGE_SIZE)
+    print(f"Image size: {model_image_size}x{model_image_size}")
+    
+    print("\nCarregando dataset...")
+    train_dataset = ForgeryDataset(
+        root_dir=TRAIN_DIR,
+        masks_dir=TRAIN_MASKS_DIR,
+        transform=get_transforms(model_image_size, mode='train'),
+        mode='train'
+    )
+    
+    # Split train/val (80/20)
+    train_size = int(0.8 * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_dataset, val_dataset = random_split(
+        train_dataset,
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(RANDOM_SEED)
+    )
+    
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=NUM_WORKERS, pin_memory=True, collate_fn=custom_collate_fn
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=NUM_WORKERS, pin_memory=True, collate_fn=custom_collate_fn
+    )
+    
+    print(f"Train samples: {len(train_dataset)}")
+    print(f"Validation samples: {len(val_dataset)}")
+    
+    # Criar modelo
+    print(f"\nCriando modelo {model_type}...")
+    if model_type == 'vit':
+        model = ViTModel(
+            model_name=MODEL_CONFIGS['vit']['model_name'],
+            num_classes=NUM_CLASSES
+        )
+    elif model_type in ['cvt13', 'cvt21', 'cvt_w24']:
+        model = CvTModel(
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
+            num_classes=NUM_CLASSES
+        )
+    elif model_type == 'dinov2':
+        model = DINOv2Model(
+            model_name=MODEL_CONFIGS['dinov2']['model_name'],
+            num_classes=NUM_CLASSES
+        )
+    else:
+        raise ValueError(f"Modelo {model_type} não tem configuração de fine-tuning")
+    
+    model = model.to(device)
+    print(f"Parâmetros totais: {model.count_parameters():,}")
+    
+    # AMP
+    use_amp = USE_AMP and torch.cuda.is_available()
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
+    if use_amp:
+        print("✓ AMP (Mixed Precision FP16) ativado")
+    
+    criterion = nn.CrossEntropyLoss()
+    
+    # Histórico de treinamento
+    history = {
+        'train_loss': [], 'val_loss': [],
+        'train_acc': [], 'val_acc': [],
+        'val_metrics': []
+    }
+    
+    best_val_acc = 0.0
+    best_epoch = 0
+    
+    # ========== FASE 1: Backbone congelado ==========
+    print(f"\n{'─'*60}")
+    print(f"FASE 1: Treinando apenas o classificador ({ft_cfg['phase1_epochs']} épocas)")
+    print(f"{'─'*60}")
+    
+    model.freeze_backbone()
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Parâmetros treináveis (fase 1): {trainable:,}")
+    
+    optimizer_p1 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=ft_cfg['phase1_lr'],
+        weight_decay=ft_cfg['weight_decay']
+    )
+    scheduler_p1 = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer_p1, T_max=ft_cfg['phase1_epochs']
+    )
+    
+    # torch.compile() após congelar
+    compiled_model = model
+    if USE_COMPILE and hasattr(torch, 'compile'):
+        try:
+            compiled_model = torch.compile(model)
+            print("✓ torch.compile() ativado")
+        except Exception as e:
+            print(f"⚠ torch.compile() não disponível: {e}")
+            compiled_model = model
+    
+    for epoch in range(1, ft_cfg['phase1_epochs'] + 1):
+        train_loss, train_acc = train_epoch(
+            compiled_model, train_loader, criterion, optimizer_p1, device, epoch,
+            scaler=scaler, accumulation_steps=1
+        )
+        val_loss, val_metrics = validate_epoch(
+            compiled_model, val_loader, criterion, device, use_amp=use_amp
+        )
+        val_acc = val_metrics['accuracy'] * 100
+        
+        scheduler_p1.step()
+        
+        history['train_loss'].append(train_loss)
+        history['val_loss'].append(val_loss)
+        history['train_acc'].append(train_acc)
+        history['val_acc'].append(val_acc)
+        history['val_metrics'].append(val_metrics)
+        
+        print(f"\n[Fase 1] Epoch {epoch}/{ft_cfg['phase1_epochs']}")
+        print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+        print(f"  Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+        print(f"  F1: {val_metrics['f1_score']:.4f} | LR: {optimizer_p1.param_groups[0]['lr']:.2e}")
+        
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_epoch = epoch
+            checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{model_type}_best.pth')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'val_acc': val_acc,
+                'val_metrics': val_metrics,
+                'phase': 1
+            }, checkpoint_path)
+            print(f"  ✓ Modelo salvo! (melhor acc: {best_val_acc:.2f}%)")
+    
+    print(f"\nFase 1 concluída! Melhor acc: {best_val_acc:.2f}%")
+    
+    # ========== FASE 2: Fine-tuning completo ==========
+    print(f"\n{'─'*60}")
+    print(f"FASE 2: Fine-tuning completo ({ft_cfg['phase2_epochs']} épocas)")
+    print(f"{'─'*60}")
+    
+    model.unfreeze_backbone()
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Parâmetros treináveis (fase 2): {trainable:,}")
+    
+    # Recompilar o modelo após descongelar
+    compiled_model = model
+    if USE_COMPILE and hasattr(torch, 'compile'):
+        try:
+            compiled_model = torch.compile(model)
+            print("✓ torch.compile() reativado")
+        except Exception as e:
+            print(f"⚠ torch.compile() não disponível: {e}")
+            compiled_model = model
+    
+    # Otimizador com learning rates diferenciados
+    param_groups = model.get_param_groups(
+        backbone_lr=ft_cfg['phase2_backbone_lr'],
+        classifier_lr=ft_cfg['phase2_classifier_lr']
+    )
+    optimizer_p2 = optim.AdamW(
+        param_groups,
+        weight_decay=ft_cfg['weight_decay']
+    )
+    
+    # Cosine Annealing scheduler com warm-up linear
+    warmup_epochs = ft_cfg['warmup_epochs']
+    phase2_epochs = ft_cfg['phase2_epochs']
+    
+    def lr_lambda(current_epoch):
+        if current_epoch < warmup_epochs:
+            # Warm-up linear: de 0 até 1
+            return float(current_epoch + 1) / float(warmup_epochs)
+        else:
+            # Cosine annealing de 1 até 0
+            progress = float(current_epoch - warmup_epochs) / float(max(1, phase2_epochs - warmup_epochs))
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+    
+    scheduler_p2 = optim.lr_scheduler.LambdaLR(optimizer_p2, lr_lambda)
+    
+    for epoch in range(1, ft_cfg['phase2_epochs'] + 1):
+        global_epoch = ft_cfg['phase1_epochs'] + epoch
+        
+        train_loss, train_acc = train_epoch(
+            compiled_model, train_loader, criterion, optimizer_p2, device, global_epoch,
+            scaler=scaler, accumulation_steps=1
+        )
+        val_loss, val_metrics = validate_epoch(
+            compiled_model, val_loader, criterion, device, use_amp=use_amp
+        )
+        val_acc = val_metrics['accuracy'] * 100
+        
+        scheduler_p2.step()
+        
+        history['train_loss'].append(train_loss)
+        history['val_loss'].append(val_loss)
+        history['train_acc'].append(train_acc)
+        history['val_acc'].append(val_acc)
+        history['val_metrics'].append(val_metrics)
+        
+        backbone_lr = optimizer_p2.param_groups[0]['lr']
+        classifier_lr = optimizer_p2.param_groups[1]['lr']
+        
+        print(f"\n[Fase 2] Epoch {epoch}/{ft_cfg['phase2_epochs']} (global: {global_epoch})")
+        print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+        print(f"  Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+        print(f"  F1: {val_metrics['f1_score']:.4f} | Backbone LR: {backbone_lr:.2e} | Classifier LR: {classifier_lr:.2e}")
+        
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_epoch = global_epoch
+            checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{model_type}_best.pth')
+            torch.save({
+                'epoch': global_epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer_p2.state_dict(),
+                'val_acc': val_acc,
+                'val_metrics': val_metrics,
+                'phase': 2
+            }, checkpoint_path)
+            print(f"  ✓ Modelo salvo! (melhor acc: {best_val_acc:.2f}%)")
+    
+    print(f"\n{'='*60}")
+    print(f"Fine-tuning concluído!")
+    print(f"Melhor acurácia: {best_val_acc:.2f}% (Época {best_epoch})")
+    print(f"{'='*60}\n")
+    
+    # Salvar histórico
+    history_path = os.path.join(RESULTS_DIR, f'{model_type}_history.json')
+    with open(history_path, 'w') as f:
+        history_serializable = {
+            k: [float(x) if isinstance(x, (np.floating, float)) else x for x in v]
+            for k, v in history.items() if k != 'val_metrics'
+        }
+        json.dump(history_serializable, f, indent=2)
+    
+    return model, history
+
+
 def main():
     parser = argparse.ArgumentParser(description='Treinar modelos de detecção de falsificação')
     parser.add_argument('--model', type=str, default='all',
@@ -347,7 +619,12 @@ def main():
         models_to_train = [args.model]
     
     for model_type in models_to_train:
-        train_model(model_type, args.epochs, args.batch_size, args.accumulation_steps)
+        # Usar fine-tuning específico se configurado, senão treinamento padrão
+        if model_type in FINETUNE_CONFIGS:
+            print(f"\n>>> Usando fine-tuning específico para {model_type}")
+            train_model_finetuned(model_type, args.batch_size)
+        else:
+            train_model(model_type, args.epochs, args.batch_size, args.accumulation_steps)
 
 if __name__ == '__main__':
     main()
