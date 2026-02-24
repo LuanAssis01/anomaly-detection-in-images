@@ -31,7 +31,7 @@ RESULTS_DIR = BASE_DIR / 'results'
 
 # Carregar históricos de treinamento
 histories = {}
-for model in ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']:
+for model in ['resnet50', 'vit', 'cvt13', 'cvt21', 'dinov2']:
     history_file = RESULTS_DIR / f'{model}_history.json'
     if history_file.exists():
         with open(history_file, 'r') as f:
@@ -39,7 +39,7 @@ for model in ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dino
 
 # Carregar resultados de teste
 test_results = {}
-for model in ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']:
+for model in ['resnet50', 'vit', 'cvt13', 'cvt21', 'dinov2']:
     results_file = RESULTS_DIR / f'{model}_test_results.json'
     if results_file.exists():
         with open(results_file, 'r') as f:
@@ -56,11 +56,9 @@ fig, axes = plt.subplots(1, 2, figsize=(15, 5))
 
 model_names = {
     'resnet50': 'ResNet-50',
-    'resnet101': 'ResNet-101',
     'vit': 'Vision Transformer',
     'cvt13': 'CvT-13',
     'cvt21': 'CvT-21',
-    'cvt_w24': 'CvT-W24',
     'dinov2': 'DINOv2'
 }
 

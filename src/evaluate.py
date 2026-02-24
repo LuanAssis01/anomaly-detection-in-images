@@ -29,7 +29,7 @@ def load_model(model_type: str, checkpoint_path: str, device):
     print(f"Carregando modelo {model_type}...")
     
     # Criar modelo
-    if model_type in ['resnet50', 'resnet101']:
+    if model_type == 'resnet50':
         model = CNNModel(
             num_classes=NUM_CLASSES,
             model_name=MODEL_CONFIGS[model_type]['model_name'],
@@ -40,7 +40,7 @@ def load_model(model_type: str, checkpoint_path: str, device):
             model_name=MODEL_CONFIGS['vit']['model_name'],
             num_classes=NUM_CLASSES
         )
-    elif model_type in ['cvt13', 'cvt21', 'cvt_w24']:
+    elif model_type in ['cvt13', 'cvt21']:
         model = CvTModel(
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
@@ -80,7 +80,7 @@ def evaluate_model(model, dataloader, device):
     all_probs = []
     all_images = []
     
-    use_amp = USE_AMP and torch.cuda.is_available()
+    use_amp = USE_AMP
     
     with torch.no_grad():
         for images, labels, _ in tqdm(dataloader, desc='Avaliando'):
@@ -134,20 +134,22 @@ def print_metrics(model_name: str, metrics: dict):
 def main():
     parser = argparse.ArgumentParser(description='Avaliar modelos treinados')
     parser.add_argument('--model', type=str, default='all',
-                      choices=['all', 'resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2'],
+                      choices=['all', 'resnet50', 'vit', 'cvt13', 'cvt21', 'dinov2'],
                       help='Modelo a avaliar')
     parser.add_argument('--visualize', action='store_true',
                       help='Mostrar visualizações')
     
     args = parser.parse_args()
     
-    # Device
-    device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
+    # Device (GPU obrigatória)
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA não disponível. Este projeto requer GPU para execução.")
+    device = torch.device('cuda')
     print(f"Device: {device}")
     
     # Determinar modelos a avaliar
     if args.model == 'all':
-        models_to_eval = ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
+        models_to_eval = ['resnet50', 'vit', 'cvt13', 'cvt21', 'dinov2']
     else:
         models_to_eval = [args.model]
     
@@ -186,6 +188,9 @@ def main():
             batch_size=BATCH_SIZE,
             shuffle=False,
             num_workers=NUM_WORKERS,
+            pin_memory=True,
+            persistent_workers=True if NUM_WORKERS > 0 else False,
+            prefetch_factor=2 if NUM_WORKERS > 0 else None,
             collate_fn=custom_collate_fn
         )
         

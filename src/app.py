@@ -19,7 +19,9 @@ class ForgeryDetector:
     """Interface para detecção de falsificações"""
     
     def __init__(self, model_type='cvt21'):
-        self.device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA não disponível. Este projeto requer GPU para execução.")
+        self.device = torch.device('cuda')
         self.model_type = model_type
         
         # Carregar modelo

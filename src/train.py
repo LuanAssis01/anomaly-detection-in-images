@@ -147,9 +147,13 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     print(f"Treinando modelo: {MODEL_CONFIGS[model_type]['name']}")
     print(f"{'='*60}\n")
     
-    # Configurar device
-    device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
+    # Configurar device (GPU obrigatória)
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA não disponível. Este projeto requer GPU para execução.")
+    device = torch.device('cuda')
     print(f"Device: {device}")
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     
     # Criar diretórios
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -183,6 +187,8 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
         shuffle=True,
         num_workers=NUM_WORKERS,
         pin_memory=True,
+        persistent_workers=True if NUM_WORKERS > 0 else False,
+        prefetch_factor=2 if NUM_WORKERS > 0 else None,
         collate_fn=custom_collate_fn
     )
     
@@ -192,6 +198,8 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
         shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=True,
+        persistent_workers=True if NUM_WORKERS > 0 else False,
+        prefetch_factor=2 if NUM_WORKERS > 0 else None,
         collate_fn=custom_collate_fn
     )
     
@@ -200,7 +208,7 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     
     # Criar modelo
     print(f"\nCriando modelo {model_type}...")
-    if model_type in ['resnet50', 'resnet101']:
+    if model_type == 'resnet50':
         model = CNNModel(
             num_classes=NUM_CLASSES,
             model_name=MODEL_CONFIGS[model_type]['model_name'],
@@ -211,7 +219,7 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
             model_name=MODEL_CONFIGS['vit']['model_name'],
             num_classes=NUM_CLASSES
         )
-    elif model_type in ['cvt13', 'cvt21', 'cvt_w24']:
+    elif model_type in ['cvt13', 'cvt21']:
         model = CvTModel(
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
@@ -236,7 +244,7 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
             print(f"⚠ torch.compile() não disponível: {e}")
     
     # AMP — Mixed Precision (FP16) com GradScaler
-    use_amp = USE_AMP and torch.cuda.is_available()
+    use_amp = USE_AMP
     scaler = torch.amp.GradScaler('cuda') if use_amp else None
     if use_amp:
         print("✓ AMP (Mixed Precision FP16) ativado")
@@ -336,17 +344,24 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
       Fase 2: backbone descongelado, fine-tuning com lr diferenciado + cosine scheduler
     """
     ft_cfg = FINETUNE_CONFIGS[model_type]
+    accumulation_steps = ft_cfg.get('accumulation_steps', 1)
     total_epochs = ft_cfg['phase1_epochs'] + ft_cfg['phase2_epochs']
+    effective_batch = batch_size * accumulation_steps
     
     print(f"\n{'='*60}")
     print(f"Fine-tuning modelo: {MODEL_CONFIGS[model_type]['name']}")
+    print(f"  Batch size: {batch_size} (efetivo: {effective_batch} com accumulation={accumulation_steps})")
     print(f"  Fase 1: {ft_cfg['phase1_epochs']} épocas (backbone congelado, lr={ft_cfg['phase1_lr']})")
     print(f"  Fase 2: {ft_cfg['phase2_epochs']} épocas (fine-tuning completo, backbone_lr={ft_cfg['phase2_backbone_lr']}, classifier_lr={ft_cfg['phase2_classifier_lr']})")
     print(f"{'='*60}\n")
     
-    # Configurar device
-    device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
+    # Configurar device (GPU obrigatória)
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA não disponível. Este projeto requer GPU para execução.")
+    device = torch.device('cuda')
     print(f"Device: {device}")
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     
     # Criar diretórios
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -375,11 +390,17 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
     
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True,
-        num_workers=NUM_WORKERS, pin_memory=True, collate_fn=custom_collate_fn
+        num_workers=NUM_WORKERS, pin_memory=True,
+        persistent_workers=True if NUM_WORKERS > 0 else False,
+        prefetch_factor=2 if NUM_WORKERS > 0 else None,
+        collate_fn=custom_collate_fn
     )
     val_loader = DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=NUM_WORKERS, pin_memory=True, collate_fn=custom_collate_fn
+        num_workers=NUM_WORKERS, pin_memory=True,
+        persistent_workers=True if NUM_WORKERS > 0 else False,
+        prefetch_factor=2 if NUM_WORKERS > 0 else None,
+        collate_fn=custom_collate_fn
     )
     
     print(f"Train samples: {len(train_dataset)}")
@@ -392,7 +413,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
             model_name=MODEL_CONFIGS['vit']['model_name'],
             num_classes=NUM_CLASSES
         )
-    elif model_type in ['cvt13', 'cvt21', 'cvt_w24']:
+    elif model_type in ['cvt13', 'cvt21']:
         model = CvTModel(
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
@@ -402,7 +423,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
             model_name=MODEL_CONFIGS['dinov2']['model_name'],
             num_classes=NUM_CLASSES
         )
-    elif model_type in ['resnet50', 'resnet101']:
+    elif model_type == 'resnet50':
         model = CNNModel(
             num_classes=NUM_CLASSES,
             model_name=MODEL_CONFIGS[model_type]['model_name'],
@@ -415,13 +436,18 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
     print(f"Parâmetros totais: {model.count_parameters():,}")
     
     # AMP
-    use_amp = USE_AMP and torch.cuda.is_available()
+    use_amp = USE_AMP
     scaler = torch.amp.GradScaler('cuda') if use_amp else None
     if use_amp:
         print("✓ AMP (Mixed Precision FP16) ativado")
-    
-    criterion = nn.CrossEntropyLoss()
-    
+
+    label_smoothing = ft_cfg.get('label_smoothing', 0.0)
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    if label_smoothing > 0:
+        print(f"✓ Label Smoothing: {label_smoothing}")
+
+    early_stopping_patience = ft_cfg.get('early_stopping_patience', 999)
+
     # Histórico de treinamento
     history = {
         'train_loss': [], 'val_loss': [],
@@ -463,7 +489,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
     for epoch in range(1, ft_cfg['phase1_epochs'] + 1):
         train_loss, train_acc = train_epoch(
             compiled_model, train_loader, criterion, optimizer_p1, device, epoch,
-            scaler=scaler, accumulation_steps=1
+            scaler=scaler, accumulation_steps=accumulation_steps
         )
         val_loss, val_metrics = validate_epoch(
             compiled_model, val_loader, criterion, device, use_amp=use_amp
@@ -502,7 +528,9 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
     print(f"\n{'─'*60}")
     print(f"FASE 2: Fine-tuning completo ({ft_cfg['phase2_epochs']} épocas)")
     print(f"{'─'*60}")
-    
+
+    no_improve_count = 0  # contador para early stopping
+
     model.unfreeze_backbone()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Parâmetros treináveis (fase 2): {trainable:,}")
@@ -547,7 +575,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
         
         train_loss, train_acc = train_epoch(
             compiled_model, train_loader, criterion, optimizer_p2, device, global_epoch,
-            scaler=scaler, accumulation_steps=1
+            scaler=scaler, accumulation_steps=accumulation_steps
         )
         val_loss, val_metrics = validate_epoch(
             compiled_model, val_loader, criterion, device, use_amp=use_amp
@@ -573,6 +601,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_epoch = global_epoch
+            no_improve_count = 0
             checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{model_type}_best.pth')
             torch.save({
                 'epoch': global_epoch,
@@ -583,6 +612,12 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
                 'phase': 2
             }, checkpoint_path)
             print(f"  ✓ Modelo salvo! (melhor acc: {best_val_acc:.2f}%)")
+        else:
+            no_improve_count += 1
+            print(f"  ⏱  Sem melhora: {no_improve_count}/{early_stopping_patience}")
+            if no_improve_count >= early_stopping_patience:
+                print(f"\n⚠ Early stopping ativado na época {global_epoch} (paciência={early_stopping_patience})")
+                break
     
     print(f"\n{'='*60}")
     print(f"Fine-tuning concluído!")
@@ -604,7 +639,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
 def main():
     parser = argparse.ArgumentParser(description='Treinar modelos de detecção de falsificação')
     parser.add_argument('--model', type=str, default='all',
-                      choices=['all', 'resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2'],
+                      choices=['all', 'resnet50', 'vit', 'cvt13', 'cvt21', 'dinov2'],
                       help='Modelo a treinar')
     parser.add_argument('--epochs', type=int, default=NUM_EPOCHS,
                       help='Número de épocas')
@@ -620,17 +655,20 @@ def main():
     
     # Treinar modelos
     if args.model == 'all':
-        models_to_train = ['resnet50', 'resnet101', 'vit', 'cvt13', 'cvt21', 'cvt_w24', 'dinov2']
+        models_to_train = ['resnet50', 'vit', 'cvt13', 'cvt21', 'dinov2']
     else:
         models_to_train = [args.model]
     
     for model_type in models_to_train:
+        # Usar batch_size específico do modelo se não foi passado via CLI
+        model_batch_size = MODEL_CONFIGS[model_type].get('batch_size', args.batch_size)
+        
         # Usar fine-tuning específico se configurado, senão treinamento padrão
         if model_type in FINETUNE_CONFIGS:
             print(f"\n>>> Usando fine-tuning específico para {model_type}")
-            train_model_finetuned(model_type, args.batch_size)
+            train_model_finetuned(model_type, model_batch_size)
         else:
-            train_model(model_type, args.epochs, args.batch_size, args.accumulation_steps)
+            train_model(model_type, args.epochs, model_batch_size, args.accumulation_steps)
 
 if __name__ == '__main__':
     main()

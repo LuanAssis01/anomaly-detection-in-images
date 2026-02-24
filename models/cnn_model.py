@@ -19,14 +19,6 @@ class CNNModel(nn.Module):
         if model_name == 'resnet50':
             self.backbone = models.resnet50(pretrained=pretrained)
             feature_dim = 2048
-        elif model_name == 'resnet101':
-            self.backbone = models.resnet101(pretrained=pretrained)
-            feature_dim = 2048
-        elif model_name == 'resnet34':
-            self.backbone = models.resnet34(pretrained=pretrained)
-            feature_dim = 512
-        else:
-            raise ValueError(f"Modelo {model_name} não suportado. Use 'resnet34', 'resnet50' ou 'resnet101'.")
         
         # Remover a última camada FC
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
