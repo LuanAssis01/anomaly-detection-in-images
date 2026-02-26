@@ -30,6 +30,10 @@ try:
     from configs.config import FINETUNE_CONFIGS
 except ImportError:
     FINETUNE_CONFIGS = {}
+try:
+    from configs.config import CLASS_WEIGHTS
+except ImportError:
+    CLASS_WEIGHTS = None
 from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
 from utils.metrics import calculate_metrics, AverageMeter
 from models import CNNModel, ViTModel, CvTModel, DINOv2Model
@@ -251,8 +255,13 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     if accumulation_steps > 1:
         print(f"✓ Gradient Accumulation: {accumulation_steps} steps (batch efetivo = {batch_size * accumulation_steps})")
     
-    # Loss e optimizer
-    criterion = nn.CrossEntropyLoss()
+    # Loss e optimizer (com pesos de classe para penalizar FN)
+    if CLASS_WEIGHTS is not None:
+        weight = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(device)
+        criterion = nn.CrossEntropyLoss(weight=weight)
+        print(f"✓ Class weights: {CLASS_WEIGHTS}")
+    else:
+        criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=5
@@ -442,7 +451,12 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
         print("✓ AMP (Mixed Precision FP16) ativado")
 
     label_smoothing = ft_cfg.get('label_smoothing', 0.0)
-    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    if CLASS_WEIGHTS is not None:
+        weight = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(device)
+        criterion = nn.CrossEntropyLoss(weight=weight, label_smoothing=label_smoothing)
+        print(f"✓ Class weights: {CLASS_WEIGHTS}")
+    else:
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     if label_smoothing > 0:
         print(f"✓ Label Smoothing: {label_smoothing}")
 

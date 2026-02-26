@@ -19,6 +19,10 @@ try:
     from configs.config import USE_AMP
 except ImportError:
     USE_AMP = True
+try:
+    from configs.config import DECISION_THRESHOLD
+except ImportError:
+    DECISION_THRESHOLD = 0.5
 from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
 from utils.metrics import calculate_metrics
 from utils.visualization import plot_confusion_matrix, visualize_predictions
@@ -71,43 +75,47 @@ def load_model(model_type: str, checkpoint_path: str, device):
     
     return model
 
-def evaluate_model(model, dataloader, device):
-    """Avalia modelo no dataset"""
+def evaluate_model(model, dataloader, device, threshold=None):
+    """Avalia modelo no dataset com threshold de decisão configurável"""
+    if threshold is None:
+        threshold = DECISION_THRESHOLD
     model.eval()
-    
+
     all_labels = []
     all_predictions = []
     all_probs = []
     all_images = []
-    
+
     use_amp = USE_AMP
-    
+
     with torch.no_grad():
         for images, labels, _ in tqdm(dataloader, desc='Avaliando'):
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
-            
+
             # Forward pass com AMP
             with torch.amp.autocast('cuda', enabled=use_amp):
                 outputs = model(images)
             probs = torch.softmax(outputs, dim=1)[:, 1]
-            _, predicted = torch.max(outputs.data, 1)
-            
+            # Usar threshold configurável (< 0.5 favorece recall)
+            predicted = (probs >= threshold).long()
+
             all_labels.extend(labels.cpu().numpy())
             all_predictions.extend(predicted.cpu().numpy())
             all_probs.extend(probs.cpu().numpy())
-            
+
             # Guardar algumas imagens para visualização
             if len(all_images) < 16:
                 all_images.extend(images.cpu())
-    
+
     # Calcular métricas
     metrics = calculate_metrics(
         np.array(all_labels),
         np.array(all_predictions),
         np.array(all_probs)
     )
-    
+    metrics['threshold'] = threshold
+
     return metrics, all_labels, all_predictions, all_images[:16]
 
 def print_metrics(model_name: str, metrics: dict):
@@ -115,6 +123,7 @@ def print_metrics(model_name: str, metrics: dict):
     print(f"\n{'='*60}")
     print(f"Resultados - {model_name}")
     print(f"{'='*60}")
+    print(f"Threshold:   {metrics.get('threshold', 0.5)}")
     print(f"Accuracy:    {metrics['accuracy']*100:.2f}%")
     print(f"Precision:   {metrics['precision']:.4f}")
     print(f"Recall:      {metrics['recall']:.4f}")
@@ -138,7 +147,9 @@ def main():
                       help='Modelo a avaliar')
     parser.add_argument('--visualize', action='store_true',
                       help='Mostrar visualizações')
-    
+    parser.add_argument('--threshold', type=float, default=None,
+                      help=f'Threshold de decisão (default: {DECISION_THRESHOLD} do config)')
+
     args = parser.parse_args()
     
     # Device (GPU obrigatória)
@@ -198,7 +209,9 @@ def main():
         
         # Carregar e avaliar
         model = load_model(model_type, checkpoint_path, device)
-        metrics, labels, predictions, images = evaluate_model(model, test_loader, device)
+        threshold = args.threshold if args.threshold is not None else DECISION_THRESHOLD
+        print(f"Decision threshold: {threshold}")
+        metrics, labels, predictions, images = evaluate_model(model, test_loader, device, threshold=threshold)
         
         # Salvar resultados
         all_results[model_type] = metrics

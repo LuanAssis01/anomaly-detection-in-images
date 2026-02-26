@@ -9,6 +9,19 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from typing import Tuple, Optional
 
+
+class GaussianNoise:
+    """Adiciona ruído gaussiano ao tensor (simula artefatos de compressão JPEG)"""
+    def __init__(self, p=0.2, std=0.02):
+        self.p = p
+        self.std = std
+
+    def __call__(self, tensor):
+        if torch.rand(1).item() < self.p:
+            noise = torch.randn_like(tensor) * self.std
+            return torch.clamp(tensor + noise, 0.0, 1.0)
+        return tensor
+
 class ForgeryDataset(Dataset):
     """
     Dataset para classificação e segmentação de imagens forjadas
@@ -116,10 +129,24 @@ def get_transforms(image_size: int = 224, mode: str = 'train') -> transforms.Com
                 saturation=AUGMENTATION.get('saturation', 0.0),
                 hue=AUGMENTATION.get('hue', 0.0),
             ),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                               std=[0.229, 0.224, 0.225]),
         ]
+        # Gaussian Blur — simula degradação de qualidade (aplicado antes de ToTensor)
+        if AUGMENTATION.get('gauss_blur', 0) > 0:
+            transform_list.append(
+                transforms.RandomApply(
+                    [transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))],
+                    p=AUGMENTATION['gauss_blur']
+                )
+            )
+        transform_list.extend([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                               std=[0.229, 0.224, 0.225]),
+        ])
+        # Gaussian Noise — simula artefatos de compressão (aplicado após ToTensor)
+        gauss_noise_std = AUGMENTATION.get('gauss_noise_std', 0)
+        if gauss_noise_std > 0:
+            transform_list.append(GaussianNoise(p=0.2, std=gauss_noise_std))
         # Random Erasing — aplicado após ToTensor/Normalize
         if AUGMENTATION.get('random_erasing', 0) > 0:
             transform_list.append(
