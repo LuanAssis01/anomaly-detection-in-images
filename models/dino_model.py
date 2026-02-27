@@ -37,8 +37,8 @@ class DINOv2Model(nn.Module):
         Returns:
             logits: Tensor [batch_size, num_classes]
         """
-        # Passar pelo DINOv2
-        outputs = self.dino(pixel_values=pixel_values)
+        # Passar pelo DINOv2 (interpolate_pos_encoding permite resolução diferente de 224)
+        outputs = self.dino(pixel_values=pixel_values, interpolate_pos_encoding=True)
         
         # Usar o token [CLS]
         cls_token = outputs.last_hidden_state[:, 0, :]

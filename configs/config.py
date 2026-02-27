@@ -42,7 +42,7 @@ MODEL_CONFIGS = {
     },
     'vit': {
         'name': 'Vision Transformer',
-        'model_name': 'google/vit-base-patch16-224',
+        'model_name': 'google/vit-base-patch16-384',
         'num_classes': NUM_CLASSES
     },
     'cvt13': {

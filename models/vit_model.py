@@ -36,8 +36,8 @@ class ViTModel(nn.Module):
         Returns:
             logits: Tensor [batch_size, num_classes]
         """
-        # Passar pela ViT
-        outputs = self.vit(pixel_values=pixel_values)
+        # Passar pela ViT (interpolate_pos_encoding permite resolução diferente de 224)
+        outputs = self.vit(pixel_values=pixel_values, interpolate_pos_encoding=True)
         
         # Pegar o token [CLS] (primeiro token)
         cls_token = outputs.last_hidden_state[:, 0, :]
