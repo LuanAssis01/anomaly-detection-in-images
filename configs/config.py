@@ -86,13 +86,13 @@ FINETUNE_CONFIGS = {
         'phase1_epochs': 8,
         'phase1_lr': 5e-4,
         # Fase 2: fine-tuning completo com lr diferenciado
-        'phase2_epochs': 40,              # +10: mais margem para convergir com resolução maior
-        'phase2_backbone_lr': 5e-5,       # 2.5x maior: CNN se beneficia de mais ajuste no backbone
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 2e-5,       # revertido: 5e-5 era agressivo demais, modelo colapsou
         'phase2_classifier_lr': 2e-4,
         'warmup_epochs': 3,
-        'weight_decay': 1e-3,             # 10x maior: regularização insuficiente antes, possível overfit
-        'label_smoothing': 0.1,           # 2x maior: melhora generalização da CNN
-        'early_stopping_patience': 12,    # mais paciente com resolução maior
+        'weight_decay': 1e-4,             # revertido: 1e-3 + class_weights causou colapso para forged
+        'label_smoothing': 0.1,
+        'early_stopping_patience': 12,
     },
     'vit': {
         # Fase 1: treinar só a cabeça (backbone congelado)
