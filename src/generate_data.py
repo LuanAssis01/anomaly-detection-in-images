@@ -412,9 +412,19 @@ def augment_forged_with_mask(images: list, masks: list,
         # Usar mesma seed para manter transformações geométricas sincronizadas
         seed = np.random.randint(0, 2**31)
 
-        img_batch = np.expand_dims(img_array, axis=0)
+        img_batch = np.expand_dims(img_array, axis=0)  # (1, H, W, 3)
+
+        # Garantir que máscara é 2D e tem mesmo tamanho da imagem
+        h, w = img_array.shape[:2]
+        if mask_array.ndim > 2:
+            mask_array = mask_array.squeeze()
+        if mask_array.shape[0] != h or mask_array.shape[1] != w:
+            mask_pil = Image.fromarray((mask_array * 255).astype(np.uint8))
+            mask_pil = mask_pil.resize((w, h), Image.NEAREST)
+            mask_array = np.array(mask_pil).astype(np.float32) / 255.0
+
         # Máscara precisa ser (1, H, W, 1) para Keras
-        mask_3ch = np.expand_dims(np.expand_dims(mask_array, axis=0), axis=-1)
+        mask_3ch = mask_array[np.newaxis, :, :, np.newaxis]  # (1, H, W, 1)
 
         for aug_img in datagen_img.flow(img_batch, batch_size=1, seed=seed):
             aug_img = aug_img[0].astype(np.uint8)
@@ -570,14 +580,21 @@ def main():
     authentic_images = load_images_from_dir(authentic_dir, target_size=size)
     forged_images = load_images_from_dir(forged_dir, target_size=size)
 
-    # Carregar máscaras existentes para forjadas
+    # Carregar máscaras existentes para forjadas (redimensionar para target size)
     existing_masks = {}
     if os.path.exists(masks_dir):
         for fname in os.listdir(masks_dir):
             if fname.endswith('.npy'):
                 mask = np.load(os.path.join(masks_dir, fname))
+                if mask.ndim > 2:
+                    mask = mask.squeeze()
                 if mask.max() > 1:
                     mask = mask / 255.0
+                # Redimensionar para target size se necessário
+                if mask.shape[0] != size[1] or mask.shape[1] != size[0]:
+                    mask_pil = Image.fromarray((mask * 255).astype(np.uint8))
+                    mask_pil = mask_pil.resize(size, Image.NEAREST)
+                    mask = np.array(mask_pil).astype(np.float32) / 255.0
                 existing_masks[fname] = mask
 
     n_authentic = len(authentic_images)
