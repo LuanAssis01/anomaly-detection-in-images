@@ -286,6 +286,41 @@ def brightness_manipulation_forgery(image: np.ndarray) -> tuple:
     return forged, mask_binary
 
 
+def _normalize_mask_shape(mask: np.ndarray, target_size: tuple = None) -> np.ndarray:
+    """
+    Garante que a máscara seja 2D (H, W) float32 em [0, 1].
+    Aceita qualquer shape com dimensões extras (1, H, W), (H, W, 1), (1, 1, W), etc.
+    """
+    # Remover todas as dimensões de tamanho 1 até restar 2D
+    mask = np.squeeze(mask)
+
+    # Se ficou 1D (caso raro de máscara malformada), tentar reshape
+    if mask.ndim == 1:
+        side = int(np.sqrt(mask.size))
+        if side * side == mask.size:
+            mask = mask.reshape(side, side)
+        else:
+            # Fallback: máscara vazia no tamanho alvo
+            h, w = target_size[1], target_size[0] if target_size else (mask.size, 1)
+            mask = np.zeros((h, w), dtype=np.float32)
+
+    # Se ainda tem mais de 2 dimensões (ex: H, W, C), pegar apenas o primeiro canal
+    while mask.ndim > 2:
+        mask = mask[..., 0] if mask.shape[-1] <= mask.shape[0] else mask[0]
+
+    mask = mask.astype(np.float32)
+
+    # Redimensionar para target size se necessário
+    if target_size is not None:
+        th, tw = target_size[1], target_size[0]
+        if mask.shape[0] != th or mask.shape[1] != tw:
+            mask_pil = Image.fromarray((mask * 255).astype(np.uint8), mode='L')
+            mask_pil = mask_pil.resize((tw, th), Image.NEAREST)
+            mask = np.array(mask_pil).astype(np.float32) / 255.0
+
+    return mask
+
+
 def _create_feathered_mask(height: int, width: int, feather: int = 3) -> np.ndarray:
     """Cria máscara com bordas suavizadas (feathering) para blending."""
     mask = np.ones((height, width), dtype=np.float32)
@@ -416,12 +451,7 @@ def augment_forged_with_mask(images: list, masks: list,
 
         # Garantir que máscara é 2D e tem mesmo tamanho da imagem
         h, w = img_array.shape[:2]
-        if mask_array.ndim > 2:
-            mask_array = mask_array.squeeze()
-        if mask_array.shape[0] != h or mask_array.shape[1] != w:
-            mask_pil = Image.fromarray((mask_array * 255).astype(np.uint8))
-            mask_pil = mask_pil.resize((w, h), Image.NEAREST)
-            mask_array = np.array(mask_pil).astype(np.float32) / 255.0
+        mask_array = _normalize_mask_shape(mask_array, target_size=(w, h))
 
         # Máscara precisa ser (1, H, W, 1) para Keras
         mask_3ch = mask_array[np.newaxis, :, :, np.newaxis]  # (1, H, W, 1)
@@ -586,15 +616,11 @@ def main():
         for fname in os.listdir(masks_dir):
             if fname.endswith('.npy'):
                 mask = np.load(os.path.join(masks_dir, fname))
-                if mask.ndim > 2:
-                    mask = mask.squeeze()
+                # Normalizar para float [0, 1]
                 if mask.max() > 1:
                     mask = mask / 255.0
-                # Redimensionar para target size se necessário
-                if mask.shape[0] != size[1] or mask.shape[1] != size[0]:
-                    mask_pil = Image.fromarray((mask * 255).astype(np.uint8))
-                    mask_pil = mask_pil.resize(size, Image.NEAREST)
-                    mask = np.array(mask_pil).astype(np.float32) / 255.0
+                # Garantir shape 2D (H, W)
+                mask = _normalize_mask_shape(mask, size)
                 existing_masks[fname] = mask
 
     n_authentic = len(authentic_images)
