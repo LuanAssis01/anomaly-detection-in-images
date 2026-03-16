@@ -161,6 +161,38 @@ def get_transforms(image_size: int = 224, mode: str = 'train') -> transforms.Com
                                std=[0.229, 0.224, 0.225])
         ])
 
+def stratified_split(dataset: ForgeryDataset, val_ratio: float = 0.2,
+                     seed: int = 42) -> tuple:
+    """
+    Split estratificado que mantém a proporção de classes igual
+    em treino e validação.
+
+    Args:
+        dataset: ForgeryDataset com .labels
+        val_ratio: Proporção para validação (default: 0.2)
+        seed: Seed para reprodutibilidade
+
+    Returns:
+        (train_indices, val_indices)
+    """
+    from sklearn.model_selection import StratifiedShuffleSplit
+
+    labels = np.array(dataset.labels)
+    splitter = StratifiedShuffleSplit(
+        n_splits=1, test_size=val_ratio, random_state=seed
+    )
+    train_idx, val_idx = next(splitter.split(np.zeros(len(labels)), labels))
+
+    # Verificar distribuição
+    train_labels = labels[train_idx]
+    val_labels = labels[val_idx]
+    print(f"  Split estratificado:")
+    print(f"    Treino:    {len(train_idx)} ({(train_labels == 0).sum()} auth, {(train_labels == 1).sum()} forged)")
+    print(f"    Validação: {len(val_idx)} ({(val_labels == 0).sum()} auth, {(val_labels == 1).sum()} forged)")
+
+    return train_idx.tolist(), val_idx.tolist()
+
+
 def custom_collate_fn(batch):
     """
     Collate function customizado para lidar com máscaras que podem ser None

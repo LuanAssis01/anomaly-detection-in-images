@@ -8,7 +8,7 @@ import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 import numpy as np
 from tqdm import tqdm
 import argparse
@@ -34,7 +34,7 @@ try:
     from configs.config import CLASS_WEIGHTS
 except ImportError:
     CLASS_WEIGHTS = None
-from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
+from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn, stratified_split
 from utils.metrics import calculate_metrics, AverageMeter
 from models import CNNModel, ViTModel, CvTModel, DINOv2Model
 
@@ -169,22 +169,18 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
     print(f"Image size: {model_image_size}x{model_image_size}")
     
     print("\nCarregando dataset...")
-    train_dataset = ForgeryDataset(
+    full_dataset = ForgeryDataset(
         root_dir=TRAIN_DIR,
         masks_dir=TRAIN_MASKS_DIR,
         transform=get_transforms(model_image_size, mode='train'),
         mode='train'
     )
-    
-    # Split train/val (80/20)
-    train_size = int(0.8 * len(train_dataset))
-    val_size = len(train_dataset) - train_size
-    train_dataset, val_dataset = random_split(
-        train_dataset, 
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(RANDOM_SEED)
-    )
-    
+
+    # Split estratificado train/val (80/20) — garante distribuição igual de classes
+    train_idx, val_idx = stratified_split(full_dataset, val_ratio=0.2, seed=RANDOM_SEED)
+    train_dataset = Subset(full_dataset, train_idx)
+    val_dataset = Subset(full_dataset, val_idx)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -195,7 +191,7 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
         prefetch_factor=2 if NUM_WORKERS > 0 else None,
         collate_fn=custom_collate_fn
     )
-    
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -206,10 +202,10 @@ def train_model(model_type: str, num_epochs: int = NUM_EPOCHS, batch_size: int =
         prefetch_factor=2 if NUM_WORKERS > 0 else None,
         collate_fn=custom_collate_fn
     )
-    
+
     print(f"Train samples: {len(train_dataset)}")
     print(f"Validation samples: {len(val_dataset)}")
-    
+
     # Criar modelo
     print(f"\nCriando modelo {model_type}...")
     if model_type == 'resnet50':
@@ -381,22 +377,18 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
     print(f"Image size: {model_image_size}x{model_image_size}")
     
     print("\nCarregando dataset...")
-    train_dataset = ForgeryDataset(
+    full_dataset = ForgeryDataset(
         root_dir=TRAIN_DIR,
         masks_dir=TRAIN_MASKS_DIR,
         transform=get_transforms(model_image_size, mode='train'),
         mode='train'
     )
-    
-    # Split train/val (80/20)
-    train_size = int(0.8 * len(train_dataset))
-    val_size = len(train_dataset) - train_size
-    train_dataset, val_dataset = random_split(
-        train_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(RANDOM_SEED)
-    )
-    
+
+    # Split estratificado train/val (80/20) — garante distribuição igual de classes
+    train_idx, val_idx = stratified_split(full_dataset, val_ratio=0.2, seed=RANDOM_SEED)
+    train_dataset = Subset(full_dataset, train_idx)
+    val_dataset = Subset(full_dataset, val_idx)
+
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=True,
@@ -411,7 +403,7 @@ def train_model_finetuned(model_type: str, batch_size: int = BATCH_SIZE):
         prefetch_factor=2 if NUM_WORKERS > 0 else None,
         collate_fn=custom_collate_fn
     )
-    
+
     print(f"Train samples: {len(train_dataset)}")
     print(f"Validation samples: {len(val_dataset)}")
     

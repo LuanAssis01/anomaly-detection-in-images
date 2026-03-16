@@ -142,5 +142,35 @@ FINETUNE_CONFIGS = {
     },
 }
 
+# Configurações de geração de dados (balanceamento do dataset)
+DATA_GENERATION = {
+    'target_per_class': 3000,
+    # Augmentation conservadora para autênticas (preserva features de autenticidade)
+    'authentic_augmentation': {
+        'horizontal_flip': True,
+        'vertical_flip': False,
+        'rotation_range': 5,
+        'brightness_range': [0.95, 1.05],
+        'zoom_range': 0.03,
+    },
+    # Augmentation agressiva para forjadas (todas as transformações válidas)
+    'forged_augmentation': {
+        'horizontal_flip': True,
+        'vertical_flip': True,
+        'rotation_range': 20,
+        'brightness_range': [0.8, 1.2],
+        'zoom_range': 0.15,
+        'shear_range': 0.1,
+    },
+    # Proporções de técnicas de forjamento sintético
+    'forgery_techniques': {
+        'copy_move': 0.30,
+        'splicing': 0.25,
+        'inpainting': 0.20,
+        'noise_injection': 0.15,
+        'brightness_manipulation': 0.10,
+    },
+}
+
 # Random seed para reprodutibilidade
 RANDOM_SEED = 42
