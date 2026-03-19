@@ -28,14 +28,15 @@ BASE_DIR = Path(__file__).parent.parent
 RESULTS_DIR = BASE_DIR / 'results'
 
 MODELS = ['resnet50', 'dinov2']
-SCENARIOS = ['no_synthetic', 'with_synthetic']
+SCENARIOS = ['no_augmentation', 'no_synthetic', 'with_synthetic']
 MODEL_NAMES = {
     'resnet50': 'ResNet-50',
     'dinov2': 'DINOv2'
 }
 SCENARIO_NAMES = {
-    'no_synthetic': 'Sem Sintéticas',
-    'with_synthetic': 'Com Sintéticas'
+    'no_augmentation': 'Sem Augmentation',
+    'no_synthetic': 'Com Augmentation',
+    'with_synthetic': 'Com Sintéticas',
 }
 
 # Carregar históricos de treinamento

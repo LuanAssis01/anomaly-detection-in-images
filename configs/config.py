@@ -14,14 +14,26 @@ SUPPLEMENTAL_MASKS_DIR = os.path.join(DATA_DIR, 'supplemental_masks')
 RESULTS_DIR = os.path.join(BASE_DIR, 'results')
 CHECKPOINTS_DIR = os.path.join(BASE_DIR, 'checkpoints')
 
-# Diretórios por cenário (sem sintéticas vs com sintéticas)
+# Fonte original das imagens reais (origem para todos os cenários)
+SOURCE_TRAIN_DIR = os.path.join(DATA_DIR, 'train_images')
+SOURCE_MASKS_DIR = os.path.join(DATA_DIR, 'train_masks')
+
+# Diretórios por cenário
 SCENARIOS_DIR = os.path.join(DATA_DIR, 'scenarios')
 SCENARIOS = {
+    # Apenas imagens reais, sem nenhuma transformação extra
+    'no_augmentation': {
+        'train_dir': os.path.join(SCENARIOS_DIR, 'no_augmentation', 'train_images'),
+        'masks_dir': os.path.join(SCENARIOS_DIR, 'no_augmentation', 'train_masks'),
+        'masks_vis_dir': os.path.join(SCENARIOS_DIR, 'no_augmentation', 'train_masks_visualization'),
+    },
+    # Imagens reais + augmentation para balancear as classes
     'no_synthetic': {
         'train_dir': os.path.join(SCENARIOS_DIR, 'no_synthetic', 'train_images'),
         'masks_dir': os.path.join(SCENARIOS_DIR, 'no_synthetic', 'train_masks'),
         'masks_vis_dir': os.path.join(SCENARIOS_DIR, 'no_synthetic', 'train_masks_visualization'),
     },
+    # Imagens reais + augmentation + forjadas sintéticas geradas de autênticas
     'with_synthetic': {
         'train_dir': os.path.join(SCENARIOS_DIR, 'with_synthetic', 'train_images'),
         'masks_dir': os.path.join(SCENARIOS_DIR, 'with_synthetic', 'train_masks'),

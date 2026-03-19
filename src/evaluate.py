@@ -143,8 +143,8 @@ def main():
                       choices=['all', 'resnet50', 'dinov2'],
                       help='Modelo a avaliar (default: all)')
     parser.add_argument('--scenario', type=str, default='all',
-                      choices=['all', 'no_synthetic', 'with_synthetic'],
-                      help='Cenário de dados (default: all = ambos)')
+                      choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
+                      help='Cenário de dados (default: all = todos os 3 cenários)')
     parser.add_argument('--visualize', action='store_true',
                       help='Gerar visualizações (confusion matrix, predictions)')
     parser.add_argument('--threshold', type=float, default=None,
@@ -158,7 +158,7 @@ def main():
     print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     models_to_eval = ['resnet50', 'dinov2'] if args.model == 'all' else [args.model]
-    scenarios = ['no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
+    scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     all_results = {}
 

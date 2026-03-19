@@ -20,7 +20,8 @@ import random
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from configs.config import (
-    DATA_DIR, IMAGE_SIZE, RANDOM_SEED, SCENARIOS
+    DATA_DIR, IMAGE_SIZE, RANDOM_SEED, SCENARIOS,
+    SOURCE_TRAIN_DIR, SOURCE_MASKS_DIR
 )
 
 # Keras imports
@@ -607,20 +608,21 @@ def save_mask_overlays(images: list, masks: list, output_dir: str,
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Gerar e balancear dataset de imagens autênticas e forjadas'
+        description='Gerar dataset por cenário a partir das imagens originais'
+    )
+    parser.add_argument(
+        '--scenario', type=str, default='no_augmentation',
+        choices=['no_augmentation', 'no_synthetic', 'with_synthetic'],
+        help=(
+            'Cenário de geração:\n'
+            '  no_augmentation — copia as imagens reais sem nenhuma transformação\n'
+            '  no_synthetic    — imagens reais + augmentation para balancear\n'
+            '  with_synthetic  — imagens reais + augmentation + forjadas sintéticas'
+        )
     )
     parser.add_argument(
         '--target', type=int, default=TARGET_PER_CLASS,
-        help=f'Número alvo de imagens por classe (default: {TARGET_PER_CLASS})'
-    )
-    parser.add_argument(
-        '--scenario', type=str, default='no_synthetic',
-        choices=['no_synthetic', 'with_synthetic'],
-        help=(
-            'Cenário de geração:\n'
-            '  no_synthetic   — apenas augmentation de imagens reais (default)\n'
-            '  with_synthetic — também gera forjadas sintéticas a partir de autênticas'
-        )
+        help=f'Número alvo de imagens por classe para no_synthetic/with_synthetic (default: {TARGET_PER_CLASS})'
     )
     parser.add_argument(
         '--image-size', type=int, default=IMAGE_SIZE,
@@ -628,24 +630,24 @@ def main():
     )
     parser.add_argument(
         '--synthetic-ratio', type=float, default=0.5,
-        help='Proporção de forjadas sintéticas vs augmentadas (default: 0.5, só para with_synthetic)'
+        help='Proporção de forjadas sintéticas vs augmentadas para with_synthetic (default: 0.5)'
     )
     args = parser.parse_args()
 
+    scenario = args.scenario
     target = args.target
     size = (args.image_size, args.image_size)
-    scenario = args.scenario
-    # with_synthetic ativa geração de forjadas sintéticas automaticamente
-    generate_synthetic = (scenario == 'with_synthetic')
 
     print("=" * 60)
-    print("GERAÇÃO E BALANCEAMENTO DE DATASET")
+    print("GERAÇÃO DE DATASET POR CENÁRIO")
     print(f"Cenário:  {scenario}")
-    print(f"Alvo:     {target} imagens por classe")
+    print(f"Fonte:    {SOURCE_TRAIN_DIR}")
+    if scenario != 'no_augmentation':
+        print(f"Alvo:     {target} imagens por classe")
     print(f"Tamanho:  {size[0]}x{size[1]}")
     print("=" * 60)
 
-    # Diretórios baseados no cenário
+    # Diretórios de saída do cenário
     scenario_cfg = SCENARIOS[scenario]
     train_dir = scenario_cfg['train_dir']
     masks_dir = scenario_cfg['masks_dir']
@@ -662,131 +664,146 @@ def main():
     os.makedirs(masks_vis_dir, exist_ok=True)
 
     # ----------------------------------------------------------------
-    # 1. Carregar imagens existentes
+    # 1. Carregar imagens da FONTE original (data/train_images/)
     # ----------------------------------------------------------------
-    print("\n[1/5] Carregando imagens existentes...")
-    authentic_images = load_images_from_dir(authentic_dir, target_size=size)
-    forged_images = load_images_from_dir(forged_dir, target_size=size)
+    print("\n[1/5] Carregando imagens da fonte original...")
 
-    # Carregar máscaras existentes para forjadas (redimensionar para target size)
-    existing_masks = {}
-    if os.path.exists(masks_dir):
-        for fname in os.listdir(masks_dir):
+    src_authentic_dir = os.path.join(SOURCE_TRAIN_DIR, 'authentic')
+    src_forged_dir = os.path.join(SOURCE_TRAIN_DIR, 'forged')
+
+    if not os.path.exists(src_authentic_dir) or not os.path.exists(src_forged_dir):
+        print(f"\n[ERRO] Diretório fonte não encontrado!")
+        print(f"  Esperado: {SOURCE_TRAIN_DIR}/authentic  e  {SOURCE_TRAIN_DIR}/forged")
+        sys.exit(1)
+
+    authentic_images = load_images_from_dir(src_authentic_dir, target_size=size)
+    forged_images = load_images_from_dir(src_forged_dir, target_size=size)
+
+    # Carregar máscaras da fonte
+    source_masks = {}
+    if os.path.exists(SOURCE_MASKS_DIR):
+        for fname in os.listdir(SOURCE_MASKS_DIR):
             if fname.endswith('.npy'):
-                mask = np.load(os.path.join(masks_dir, fname))
-                # Normalizar para float [0, 1]
+                mask = np.load(os.path.join(SOURCE_MASKS_DIR, fname))
                 if mask.max() > 1:
                     mask = mask / 255.0
-                # Garantir shape 2D (H, W)
                 mask = _normalize_mask_shape(mask, size)
-                existing_masks[fname] = mask
+                source_masks[fname] = mask
 
     n_authentic = len(authentic_images)
     n_forged = len(forged_images)
-    print(f"  Autênticas encontradas: {n_authentic}")
-    print(f"  Forjadas encontradas: {n_forged}")
-
-    # Gerar visualizações para forjadas existentes que já possuem máscara
-    existing_with_mask = []
-    existing_mask_list = []
-    for name, img_array in forged_images:
-        mask_name = name.replace('.png', '.npy').replace('.jpg', '.npy').replace('.jpeg', '.npy')
-        if mask_name in existing_masks:
-            existing_with_mask.append((name, img_array))
-            existing_mask_list.append((name, existing_masks[mask_name]))
-    if existing_with_mask:
-        print(f"  Gerando visualizações para {len(existing_with_mask)} forjadas existentes...")
-        save_mask_overlays(existing_with_mask, existing_mask_list, masks_vis_dir)
-        # Salvar máscaras existentes como PNG também
-        for name, mask in existing_mask_list:
-            mask_png_name = name.replace('.png', '_mask.png').replace('.jpg', '_mask.png').replace('.jpeg', '_mask.png')
-            mask_img = Image.fromarray((mask * 255).astype(np.uint8), mode='L')
-            mask_img.save(os.path.join(masks_dir, mask_png_name))
+    print(f"  Autênticas na fonte: {n_authentic}")
+    print(f"  Forjadas na fonte:   {n_forged}")
+    print(f"  Máscaras na fonte:   {len(source_masks)}")
 
     if n_authentic == 0 and n_forged == 0:
-        print("\n[ERRO] Nenhuma imagem encontrada!")
-        print(f"  Coloque imagens autênticas em: {authentic_dir}")
-        print(f"  Coloque imagens forjadas em: {forged_dir}")
-        print("  Formatos aceitos: .png, .jpg, .jpeg")
+        print(f"\n[ERRO] Nenhuma imagem encontrada em {SOURCE_TRAIN_DIR}")
         sys.exit(1)
 
-    # ----------------------------------------------------------------
-    # 2. Gerar imagens autênticas (augmentation conservadora)
-    # ----------------------------------------------------------------
-    need_authentic = max(0, target - n_authentic)
-    print(f"\n[2/5] Gerando {need_authentic} imagens autênticas augmentadas...")
+    # ================================================================
+    # CENÁRIO: no_augmentation
+    # Copia as imagens reais para o diretório do cenário sem nenhuma
+    # transformação. Usa o dataset na íntegra, sem balanceamento.
+    # ================================================================
+    if scenario == 'no_augmentation':
+        print("\n[2/5] Copiando imagens autênticas (sem augmentation)...")
+        save_images(authentic_images, authentic_dir)
+        print(f"  Copiadas {len(authentic_images)} imagens autênticas")
 
-    if need_authentic > 0 and n_authentic > 0:
-        aug_authentic = augment_with_keras(
-            authentic_images, AUTHENTIC_AUGMENTATION,
-            need_authentic, prefix='authentic'
-        )
-        save_images(aug_authentic, authentic_dir)
-        print(f"  Salvas {len(aug_authentic)} imagens autênticas em {authentic_dir}")
-    elif n_authentic == 0:
-        print("  [AVISO] Sem imagens autênticas para augmentar.")
-        print("  Use --scenario with_synthetic para criar forjadas a partir delas.")
+        print("\n[3/5] Pulando geração sintética")
+        print("\n[4/5] Copiando imagens forjadas (sem augmentation)...")
+        forged_with_mask = []
+        forged_mask_list = []
+        for name, img_array in forged_images:
+            mask_key = name.replace('.png', '.npy').replace('.jpg', '.npy').replace('.jpeg', '.npy')
+            if mask_key in source_masks:
+                forged_with_mask.append((name, img_array))
+                forged_mask_list.append((name, source_masks[mask_key]))
 
-    # ----------------------------------------------------------------
-    # 3. Gerar imagens forjadas sintéticas (a partir de autênticas)
-    # ----------------------------------------------------------------
-    synthetic_imgs = []
-    synthetic_masks = []
-    need_forged = max(0, target - n_forged)
+        save_images(forged_images, forged_dir)
+        if forged_with_mask:
+            save_masks(forged_mask_list, masks_dir)
+            save_mask_overlays(forged_with_mask, forged_mask_list, masks_vis_dir)
+        print(f"  Copiadas {len(forged_images)} imagens forjadas")
 
-    if generate_synthetic and n_authentic > 0:
-        n_synthetic = int(need_forged * args.synthetic_ratio)
-        print(f"\n[3/5] Gerando {n_synthetic} forjadas sintéticas a partir de autênticas...")
-
-        synthetic_imgs, synthetic_masks = generate_synthetic_forged(
-            authentic_images, n_synthetic
-        )
-        save_images(synthetic_imgs, forged_dir)
-        save_masks(synthetic_masks, masks_dir)
-        save_mask_overlays(synthetic_imgs, synthetic_masks, masks_vis_dir)
-        print(f"  Salvas {len(synthetic_imgs)} forjadas sintéticas com máscaras e visualizações")
-        need_forged -= len(synthetic_imgs)
+    # ================================================================
+    # CENÁRIO: no_synthetic  ou  with_synthetic
+    # Usa as imagens reais como base e aplica augmentation para
+    # atingir o alvo. with_synthetic também cria forjadas sintéticas.
+    # ================================================================
     else:
-        print("\n[3/5] Pulando geração de forjadas sintéticas (cenário: no_synthetic)")
-        if generate_synthetic and n_authentic == 0:
-            print("  [AVISO] Sem imagens autênticas para criar forjadas sintéticas")
+        generate_synthetic = (scenario == 'with_synthetic')
 
-    # ----------------------------------------------------------------
-    # 4. Augmentar imagens forjadas existentes (com máscaras sincronizadas)
-    # ----------------------------------------------------------------
-    print(f"\n[4/5] Gerando {max(0, need_forged)} forjadas augmentadas...")
+        # --- 2. Augmentar autênticas para atingir target ---
+        need_authentic = max(0, target - n_authentic)
+        print(f"\n[2/5] Copiando {n_authentic} autênticas + gerando {need_authentic} augmentadas...")
 
-    # Reunir todas as forjadas (originais + sintéticas) com suas máscaras
-    all_forged = forged_images + synthetic_imgs
-    all_masks = []
-    for name, _ in forged_images:
-        mask_name = name.replace('.png', '.npy').replace('.jpg', '.npy').replace('.jpeg', '.npy')
-        if mask_name in existing_masks:
-            all_masks.append(existing_masks[mask_name])
+        save_images(authentic_images, authentic_dir)
+
+        if need_authentic > 0:
+            aug_authentic = augment_with_keras(
+                authentic_images, AUTHENTIC_AUGMENTATION,
+                need_authentic, prefix='authentic'
+            )
+            save_images(aug_authentic, authentic_dir)
+            print(f"  Salvas {len(aug_authentic)} autênticas augmentadas")
+
+        # --- 3. Forjadas sintéticas (apenas with_synthetic) ---
+        synthetic_imgs = []
+        synthetic_masks = []
+        need_forged = max(0, target - n_forged)
+
+        if generate_synthetic and n_authentic > 0:
+            n_synthetic = int(need_forged * args.synthetic_ratio)
+            print(f"\n[3/5] Gerando {n_synthetic} forjadas sintéticas...")
+            synthetic_imgs, synthetic_masks = generate_synthetic_forged(
+                authentic_images, n_synthetic
+            )
+            save_images(synthetic_imgs, forged_dir)
+            save_masks(synthetic_masks, masks_dir)
+            save_mask_overlays(synthetic_imgs, synthetic_masks, masks_vis_dir)
+            print(f"  Salvas {len(synthetic_imgs)} forjadas sintéticas")
+            need_forged -= len(synthetic_imgs)
         else:
-            # Sem máscara -> criar máscara vazia (será toda preta)
-            all_masks.append(np.zeros((size[1], size[0]), dtype=np.float32))
-    for name, mask in synthetic_masks:
-        all_masks.append(mask)
+            print("\n[3/5] Pulando geração sintética (cenário: no_synthetic)")
 
-    if need_forged > 0 and len(all_forged) > 0:
-        # Preparar pares (imagem, máscara)
-        forged_with_masks = list(zip(
-            [(n, img) for n, img in all_forged],
-            all_masks
-        ))
-        imgs_list = [x[0] for x in forged_with_masks]
-        masks_list = [x[1] for x in forged_with_masks]
+        # --- 4. Copiar forjadas reais + augmentar até target ---
+        all_forged = forged_images + synthetic_imgs
+        all_masks_list = []
+        for name, _ in forged_images:
+            mask_key = name.replace('.png', '.npy').replace('.jpg', '.npy').replace('.jpeg', '.npy')
+            all_masks_list.append(
+                source_masks[mask_key] if mask_key in source_masks
+                else np.zeros((size[1], size[0]), dtype=np.float32)
+            )
+        for _, mask in synthetic_masks:
+            all_masks_list.append(mask)
 
-        aug_forged_imgs, aug_forged_masks = augment_forged_with_mask(
-            imgs_list, masks_list, FORGED_AUGMENTATION, need_forged
-        )
-        save_images(aug_forged_imgs, forged_dir)
-        save_masks(aug_forged_masks, masks_dir)
-        save_mask_overlays(aug_forged_imgs, aug_forged_masks, masks_vis_dir)
-        print(f"  Salvas {len(aug_forged_imgs)} forjadas augmentadas com máscaras e visualizações")
-    elif n_forged == 0 and len(synthetic_imgs) == 0:
-        print("  [AVISO] Sem imagens forjadas para augmentar.")
+        print(f"\n[4/5] Copiando {len(forged_images)} forjadas reais + gerando {max(0, need_forged)} augmentadas...")
+
+        # Copiar forjadas reais com suas máscaras
+        save_images(forged_images, forged_dir)
+        forged_real_with_mask = []
+        forged_real_masks = []
+        for name, img_array in forged_images:
+            mask_key = name.replace('.png', '.npy').replace('.jpg', '.npy').replace('.jpeg', '.npy')
+            if mask_key in source_masks:
+                forged_real_with_mask.append((name, img_array))
+                forged_real_masks.append((name, source_masks[mask_key]))
+        if forged_real_with_mask:
+            save_masks(forged_real_masks, masks_dir)
+            save_mask_overlays(forged_real_with_mask, forged_real_masks, masks_vis_dir)
+
+        # Augmentar forjadas para atingir target
+        if need_forged > 0 and len(all_forged) > 0:
+            imgs_list = [(n, img) for n, img in all_forged]
+            aug_forged_imgs, aug_forged_masks = augment_forged_with_mask(
+                imgs_list, all_masks_list, FORGED_AUGMENTATION, need_forged
+            )
+            save_images(aug_forged_imgs, forged_dir)
+            save_masks(aug_forged_masks, masks_dir)
+            save_mask_overlays(aug_forged_imgs, aug_forged_masks, masks_vis_dir)
+            print(f"  Salvas {len(aug_forged_imgs)} forjadas augmentadas")
 
     # ----------------------------------------------------------------
     # 5. Relatório final
@@ -802,12 +819,8 @@ def main():
         f for f in os.listdir(forged_dir)
         if f.lower().endswith(('.png', '.jpg', '.jpeg'))
     ])
-    final_masks = len([
-        f for f in os.listdir(masks_dir) if f.endswith('.npy')
-    ])
-    final_masks_png = len([
-        f for f in os.listdir(masks_dir) if f.endswith('_mask.png')
-    ])
+    final_masks = len([f for f in os.listdir(masks_dir) if f.endswith('.npy')])
+    final_masks_png = len([f for f in os.listdir(masks_dir) if f.endswith('_mask.png')])
     final_overlays = len([
         f for f in os.listdir(masks_vis_dir) if f.endswith('_overlay.png')
     ]) if os.path.exists(masks_vis_dir) else 0
@@ -818,15 +831,16 @@ def main():
     print(f"  Máscaras (.png):    {final_masks_png}")
     print(f"  Overlays gerados:   {final_overlays}")
     print(f"  Total de imagens:   {final_authentic + final_forged}")
-    print(f"  Balanceamento:      {'OK' if final_authentic == final_forged else 'DESBALANCEADO'}")
+    bal = 'OK' if final_authentic == final_forged else 'DESBALANCEADO'
+    print(f"  Balanceamento:      {bal}")
     print("=" * 60)
 
-    if final_authentic != target or final_forged != target:
+    if scenario != 'no_augmentation' and (final_authentic != target or final_forged != target):
         print(f"\n  [AVISO] Alvo era {target} por classe.")
         if final_authentic < target:
             print(f"  Faltam {target - final_authentic} autênticas (adicione mais imagens originais)")
         if final_forged < target:
-            print(f"  Faltam {target - final_forged} forjadas (adicione mais ou use --generate-forged-from-authentic)")
+            print(f"  Faltam {target - final_forged} forjadas (use with_synthetic para criar sintéticas)")
 
 
 if __name__ == '__main__':

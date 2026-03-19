@@ -517,8 +517,8 @@ def main():
                       choices=['all', 'resnet50', 'dinov2'],
                       help='Modelo a treinar (default: all = resnet50 + dinov2)')
     parser.add_argument('--scenario', type=str, default='all',
-                      choices=['all', 'no_synthetic', 'with_synthetic'],
-                      help='Cenário de dados (default: all = ambos os cenários)')
+                      choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
+                      help='Cenário de dados (default: all = todos os 3 cenários)')
     parser.add_argument('--generate-data', action='store_true',
                       help='Gerar dados antes de treinar (chama generate_data.py)')
     parser.add_argument('--target', type=int, default=None,
@@ -531,7 +531,7 @@ def main():
     set_seed(RANDOM_SEED)
 
     models_to_train = ['resnet50', 'dinov2'] if args.model == 'all' else [args.model]
-    scenarios = ['no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
+    scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     print(f"\nModelos:   {models_to_train}")
     print(f"Cenários:  {scenarios}")
