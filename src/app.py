@@ -13,50 +13,44 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
 from configs.config import *
-from models import CNNModel, ViTModel, CvTModel, DINOv2Model
+from models import CNNModel, DINOv2Model
 
 class ForgeryDetector:
     """Interface para detecção de falsificações"""
-    
-    def __init__(self, model_type='cvt21'):
+
+    def __init__(self, model_type='dinov2', scenario='no_synthetic'):
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA não disponível. Este projeto requer GPU para execução.")
         self.device = torch.device('cuda')
         self.model_type = model_type
-        
-        # Carregar modelo
-        checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{model_type}_best.pth')
-        
+
+        # Carregar modelo (tenta run_name primeiro, fallback para nome simples)
+        run_name = f"{model_type}_{scenario}"
+        checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{run_name}_best.pth')
         if not os.path.exists(checkpoint_path):
-            print(f"⚠ Modelo {model_type} não encontrado. Treine-o primeiro com:")
-            print(f"   python train.py --model {model_type}")
+            checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{model_type}_best.pth')
+
+        if not os.path.exists(checkpoint_path):
+            print(f"Modelo {model_type} não encontrado. Treine-o primeiro com:")
+            print(f"   python src/train.py --model {model_type} --scenario {scenario}")
             self.model = None
             return
-        
-        print(f"Carregando modelo {model_type}...")
-        
-        # Criar modelo
-        if model_type in ['resnet50', 'resnet101']:
+
+        print(f"Carregando modelo {model_type} ({scenario})...")
+
+        if model_type == 'resnet50':
             self.model = CNNModel(
                 num_classes=NUM_CLASSES,
                 model_name=MODEL_CONFIGS[model_type]['model_name'],
                 pretrained=False
-            )
-        elif model_type == 'vit':
-            self.model = ViTModel(
-                model_name=MODEL_CONFIGS['vit']['model_name'],
-                num_classes=NUM_CLASSES
-            )
-        elif model_type in ['cvt13', 'cvt21', 'cvt_w24']:
-            self.model = CvTModel(
-                model_name=MODEL_CONFIGS[model_type]['model_name'],
-                num_classes=NUM_CLASSES
             )
         elif model_type == 'dinov2':
             self.model = DINOv2Model(
                 model_name=MODEL_CONFIGS['dinov2']['model_name'],
                 num_classes=NUM_CLASSES
             )
+        else:
+            raise ValueError(f"Modelo desconhecido: {model_type}")
         
         # Carregar pesos
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
@@ -166,12 +160,12 @@ def demo():
     else:
         forged_images = []
     
-    # Criar detector (usando CvT-21 por padrão)
-    detector = ForgeryDetector('cvt21')
-    
+    # Criar detector (usando DINOv2 por padrão)
+    detector = ForgeryDetector('dinov2')
+
     if detector.model is None:
-        print("\n⚠ Nenhum modelo treinado encontrado.")
-        print("Execute primeiro: python train.py --model cvt21")
+        print("\nNenhum modelo treinado encontrado.")
+        print("Execute primeiro: python src/train.py --model dinov2")
         return
     
     print("\nTestando imagens autênticas:")

@@ -19,7 +19,8 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 
 # Geração de dados (augmentation com Keras)
-tensorflow>=2.12.0
+keras>=3.0.0
+keras-preprocessing>=1.1.2
 
 # Utilidades
 tqdm>=4.65.0

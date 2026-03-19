@@ -20,13 +20,11 @@ import random
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from configs.config import (
-    DATA_DIR, TRAIN_DIR, TRAIN_MASKS_DIR,
-    IMAGE_SIZE, RANDOM_SEED
+    DATA_DIR, IMAGE_SIZE, RANDOM_SEED, SCENARIOS
 )
 
 # Keras imports
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suprimir logs do TF
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras_preprocessing.image import ImageDataGenerator
 
 # Seed para reprodutibilidade
 np.random.seed(RANDOM_SEED)
@@ -551,11 +549,55 @@ def save_images(images: list, output_dir: str):
 
 
 def save_masks(masks: list, output_dir: str):
-    """Salva lista de (nome, np_array) como arquivos .npy."""
+    """Salva lista de (nome, np_array) como arquivos .npy e .png."""
     os.makedirs(output_dir, exist_ok=True)
     for name, mask_array in masks:
         mask_name = name.replace('.png', '.npy').replace('.jpg', '.npy')
         np.save(os.path.join(output_dir, mask_name), mask_array)
+        # Salvar máscara como PNG (branco = região manipulada)
+        mask_png_name = mask_name.replace('.npy', '_mask.png')
+        mask_img = Image.fromarray((mask_array * 255).astype(np.uint8), mode='L')
+        mask_img.save(os.path.join(output_dir, mask_png_name))
+
+
+def save_mask_overlays(images: list, masks: list, output_dir: str,
+                       alpha: float = 0.4):
+    """
+    Salva visualizações overlay: imagem forjada com máscara vermelha sobreposta.
+    Permite identificar visualmente a região manipulada.
+
+    Args:
+        images: Lista de (nome, np_array) das imagens forjadas
+        masks: Lista de (nome, np_array) das máscaras correspondentes
+        output_dir: Diretório de saída para as visualizações
+        alpha: Opacidade do overlay vermelho (0=transparente, 1=opaco)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    for (img_name, img_array), (_, mask_array) in zip(images, masks):
+        h, w = img_array.shape[:2]
+        mask_resized = _normalize_mask_shape(mask_array, target_size=(w, h))
+
+        # Criar overlay vermelho na região manipulada
+        overlay = img_array.copy().astype(np.float32)
+        mask_3d = np.expand_dims(mask_resized, axis=2)
+
+        # Vermelho semi-transparente onde mask=1
+        red = np.array([255.0, 0.0, 0.0])
+        overlay = overlay * (1 - mask_3d * alpha) + red * mask_3d * alpha
+        overlay = np.clip(overlay, 0, 255).astype(np.uint8)
+
+        # Desenhar contorno verde ao redor da região manipulada
+        mask_uint8 = (mask_resized * 255).astype(np.uint8)
+        mask_pil = Image.fromarray(mask_uint8, mode='L')
+        # Detectar bordas via dilatação - erosão
+        dilated = np.array(mask_pil.filter(ImageFilter.MaxFilter(5)))
+        eroded = np.array(mask_pil.filter(ImageFilter.MinFilter(5)))
+        contour = ((dilated > 127) & ~(eroded > 127))
+
+        overlay[contour] = [0, 255, 0]  # Contorno verde
+
+        vis_name = img_name.replace('.png', '_overlay.png').replace('.jpg', '_overlay.png')
+        Image.fromarray(overlay).save(os.path.join(output_dir, vis_name))
 
 
 # ============================================================================
@@ -572,8 +614,13 @@ def main():
         help=f'Número alvo de imagens por classe (default: {TARGET_PER_CLASS})'
     )
     parser.add_argument(
-        '--generate-forged-from-authentic', action='store_true',
-        help='Gerar imagens forjadas sintéticas a partir das autênticas'
+        '--scenario', type=str, default='no_synthetic',
+        choices=['no_synthetic', 'with_synthetic'],
+        help=(
+            'Cenário de geração:\n'
+            '  no_synthetic   — apenas augmentation de imagens reais (default)\n'
+            '  with_synthetic — também gera forjadas sintéticas a partir de autênticas'
+        )
     )
     parser.add_argument(
         '--image-size', type=int, default=IMAGE_SIZE,
@@ -581,27 +628,38 @@ def main():
     )
     parser.add_argument(
         '--synthetic-ratio', type=float, default=0.5,
-        help='Proporção de forjadas sintéticas vs augmentadas (default: 0.5)'
+        help='Proporção de forjadas sintéticas vs augmentadas (default: 0.5, só para with_synthetic)'
     )
     args = parser.parse_args()
 
     target = args.target
     size = (args.image_size, args.image_size)
+    scenario = args.scenario
+    # with_synthetic ativa geração de forjadas sintéticas automaticamente
+    generate_synthetic = (scenario == 'with_synthetic')
 
     print("=" * 60)
     print("GERAÇÃO E BALANCEAMENTO DE DATASET")
-    print(f"Alvo: {target} imagens por classe")
-    print(f"Tamanho: {size[0]}x{size[1]}")
+    print(f"Cenário:  {scenario}")
+    print(f"Alvo:     {target} imagens por classe")
+    print(f"Tamanho:  {size[0]}x{size[1]}")
     print("=" * 60)
 
-    # Diretórios
-    authentic_dir = os.path.join(TRAIN_DIR, 'authentic')
-    forged_dir = os.path.join(TRAIN_DIR, 'forged')
-    masks_dir = TRAIN_MASKS_DIR
+    # Diretórios baseados no cenário
+    scenario_cfg = SCENARIOS[scenario]
+    train_dir = scenario_cfg['train_dir']
+    masks_dir = scenario_cfg['masks_dir']
+    masks_vis_dir = scenario_cfg['masks_vis_dir']
+
+    authentic_dir = os.path.join(train_dir, 'authentic')
+    forged_dir = os.path.join(train_dir, 'forged')
+
+    print(f"\nDiretório de saída: {train_dir}")
 
     os.makedirs(authentic_dir, exist_ok=True)
     os.makedirs(forged_dir, exist_ok=True)
     os.makedirs(masks_dir, exist_ok=True)
+    os.makedirs(masks_vis_dir, exist_ok=True)
 
     # ----------------------------------------------------------------
     # 1. Carregar imagens existentes
@@ -628,6 +686,23 @@ def main():
     print(f"  Autênticas encontradas: {n_authentic}")
     print(f"  Forjadas encontradas: {n_forged}")
 
+    # Gerar visualizações para forjadas existentes que já possuem máscara
+    existing_with_mask = []
+    existing_mask_list = []
+    for name, img_array in forged_images:
+        mask_name = name.replace('.png', '.npy').replace('.jpg', '.npy').replace('.jpeg', '.npy')
+        if mask_name in existing_masks:
+            existing_with_mask.append((name, img_array))
+            existing_mask_list.append((name, existing_masks[mask_name]))
+    if existing_with_mask:
+        print(f"  Gerando visualizações para {len(existing_with_mask)} forjadas existentes...")
+        save_mask_overlays(existing_with_mask, existing_mask_list, masks_vis_dir)
+        # Salvar máscaras existentes como PNG também
+        for name, mask in existing_mask_list:
+            mask_png_name = name.replace('.png', '_mask.png').replace('.jpg', '_mask.png').replace('.jpeg', '_mask.png')
+            mask_img = Image.fromarray((mask * 255).astype(np.uint8), mode='L')
+            mask_img.save(os.path.join(masks_dir, mask_png_name))
+
     if n_authentic == 0 and n_forged == 0:
         print("\n[ERRO] Nenhuma imagem encontrada!")
         print(f"  Coloque imagens autênticas em: {authentic_dir}")
@@ -650,7 +725,7 @@ def main():
         print(f"  Salvas {len(aug_authentic)} imagens autênticas em {authentic_dir}")
     elif n_authentic == 0:
         print("  [AVISO] Sem imagens autênticas para augmentar.")
-        print("  Use --generate-forged-from-authentic para criar forjadas a partir delas.")
+        print("  Use --scenario with_synthetic para criar forjadas a partir delas.")
 
     # ----------------------------------------------------------------
     # 3. Gerar imagens forjadas sintéticas (a partir de autênticas)
@@ -659,7 +734,7 @@ def main():
     synthetic_masks = []
     need_forged = max(0, target - n_forged)
 
-    if args.generate_forged_from_authentic and n_authentic > 0:
+    if generate_synthetic and n_authentic > 0:
         n_synthetic = int(need_forged * args.synthetic_ratio)
         print(f"\n[3/5] Gerando {n_synthetic} forjadas sintéticas a partir de autênticas...")
 
@@ -668,11 +743,12 @@ def main():
         )
         save_images(synthetic_imgs, forged_dir)
         save_masks(synthetic_masks, masks_dir)
-        print(f"  Salvas {len(synthetic_imgs)} forjadas sintéticas com máscaras")
+        save_mask_overlays(synthetic_imgs, synthetic_masks, masks_vis_dir)
+        print(f"  Salvas {len(synthetic_imgs)} forjadas sintéticas com máscaras e visualizações")
         need_forged -= len(synthetic_imgs)
     else:
-        print("\n[3/5] Pulando geração de forjadas sintéticas")
-        if args.generate_forged_from_authentic and n_authentic == 0:
+        print("\n[3/5] Pulando geração de forjadas sintéticas (cenário: no_synthetic)")
+        if generate_synthetic and n_authentic == 0:
             print("  [AVISO] Sem imagens autênticas para criar forjadas sintéticas")
 
     # ----------------------------------------------------------------
@@ -707,7 +783,8 @@ def main():
         )
         save_images(aug_forged_imgs, forged_dir)
         save_masks(aug_forged_masks, masks_dir)
-        print(f"  Salvas {len(aug_forged_imgs)} forjadas augmentadas com máscaras")
+        save_mask_overlays(aug_forged_imgs, aug_forged_masks, masks_vis_dir)
+        print(f"  Salvas {len(aug_forged_imgs)} forjadas augmentadas com máscaras e visualizações")
     elif n_forged == 0 and len(synthetic_imgs) == 0:
         print("  [AVISO] Sem imagens forjadas para augmentar.")
 
@@ -728,10 +805,18 @@ def main():
     final_masks = len([
         f for f in os.listdir(masks_dir) if f.endswith('.npy')
     ])
+    final_masks_png = len([
+        f for f in os.listdir(masks_dir) if f.endswith('_mask.png')
+    ])
+    final_overlays = len([
+        f for f in os.listdir(masks_vis_dir) if f.endswith('_overlay.png')
+    ]) if os.path.exists(masks_vis_dir) else 0
 
     print(f"  Imagens autênticas: {final_authentic}")
     print(f"  Imagens forjadas:   {final_forged}")
-    print(f"  Máscaras geradas:   {final_masks}")
+    print(f"  Máscaras (.npy):    {final_masks}")
+    print(f"  Máscaras (.png):    {final_masks_png}")
+    print(f"  Overlays gerados:   {final_overlays}")
     print(f"  Total de imagens:   {final_authentic + final_forged}")
     print(f"  Balanceamento:      {'OK' if final_authentic == final_forged else 'DESBALANCEADO'}")
     print("=" * 60)

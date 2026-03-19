@@ -9,9 +9,25 @@ DATA_DIR = os.path.join(BASE_DIR, 'data')
 TRAIN_DIR = os.path.join(DATA_DIR, 'train_images')
 TEST_DIR = os.path.join(DATA_DIR, 'test_images')
 TRAIN_MASKS_DIR = os.path.join(DATA_DIR, 'train_masks')
+TRAIN_MASKS_VIS_DIR = os.path.join(DATA_DIR, 'train_masks_visualization')
 SUPPLEMENTAL_MASKS_DIR = os.path.join(DATA_DIR, 'supplemental_masks')
 RESULTS_DIR = os.path.join(BASE_DIR, 'results')
 CHECKPOINTS_DIR = os.path.join(BASE_DIR, 'checkpoints')
+
+# Diretórios por cenário (sem sintéticas vs com sintéticas)
+SCENARIOS_DIR = os.path.join(DATA_DIR, 'scenarios')
+SCENARIOS = {
+    'no_synthetic': {
+        'train_dir': os.path.join(SCENARIOS_DIR, 'no_synthetic', 'train_images'),
+        'masks_dir': os.path.join(SCENARIOS_DIR, 'no_synthetic', 'train_masks'),
+        'masks_vis_dir': os.path.join(SCENARIOS_DIR, 'no_synthetic', 'train_masks_visualization'),
+    },
+    'with_synthetic': {
+        'train_dir': os.path.join(SCENARIOS_DIR, 'with_synthetic', 'train_images'),
+        'masks_dir': os.path.join(SCENARIOS_DIR, 'with_synthetic', 'train_masks'),
+        'masks_vis_dir': os.path.join(SCENARIOS_DIR, 'with_synthetic', 'train_masks_visualization'),
+    },
+}
 
 # Parâmetros de treinamento
 BATCH_SIZE = 8  # Reduzido de 16: resolução 384x384 usa ~3x mais VRAM que 224x224
@@ -33,26 +49,11 @@ NUM_CLASSES = 2  # authentic vs forged
 # classe 0 = authentic, classe 1 = forged (peso maior = penaliza mais FN)
 CLASS_WEIGHTS = [1.0, 1.5]
 
-# Configurações dos modelos.
+# Configurações dos modelos (apenas ResNet-50 e DINOv2)
 MODEL_CONFIGS = {
     'resnet50': {
         'name': 'ResNet-50',
         'model_name': 'resnet50',
-        'num_classes': NUM_CLASSES
-    },
-    'vit': {
-        'name': 'Vision Transformer',
-        'model_name': 'google/vit-base-patch16-384',
-        'num_classes': NUM_CLASSES
-    },
-    'cvt13': {
-        'name': 'CvT-13',
-        'model_name': 'microsoft/cvt-13',
-        'num_classes': NUM_CLASSES
-    },
-    'cvt21': {
-        'name': 'CvT-21',
-        'model_name': 'microsoft/cvt-21',
         'num_classes': NUM_CLASSES
     },
     'dinov2': {
@@ -79,7 +80,7 @@ AUGMENTATION = {
 # Threshold de decisão para classificação (< 0.5 favorece recall)
 DECISION_THRESHOLD = 0.4
 
-# Configurações de fine-tuning específicas por modelo
+# Configurações de fine-tuning específicas por modelo (apenas ResNet-50 e DINOv2)
 FINETUNE_CONFIGS = {
     'resnet50': {
         # Fase 1: treinar só o classificador (backbone ImageNet congelado)
@@ -93,41 +94,6 @@ FINETUNE_CONFIGS = {
         'weight_decay': 1e-4,             # revertido: 1e-3 + class_weights causou colapso para forged
         'label_smoothing': 0.1,
         'early_stopping_patience': 12,
-    },
-    'vit': {
-        # Fase 1: treinar só a cabeça (backbone congelado)
-        'phase1_epochs': 10,
-        'phase1_lr': 5e-4,                # reduzido de 1e-3: LR alto destruía features do backbone
-        # Fase 2: fine-tuning completo com lr diferenciado
-        'phase2_epochs': 40,
-        'phase2_backbone_lr': 1e-5,       # 5x maior: backbone precisa re-adaptar após fase 1 agressiva
-        'phase2_classifier_lr': 1e-4,
-        'warmup_epochs': 5,
-        'weight_decay': 0.05,             # 5x maior: mais regularização para evitar overfit
-        'label_smoothing': 0.1,           # adicionado: sem regularização na loss antes
-        'early_stopping_patience': 15,    # adicionado: antes era disabled (999), causava overfit
-    },
-    'cvt13': {
-        'phase1_epochs': 10,
-        'phase1_lr': 5e-4,                # reduzido de 1e-3: mesma razão do ViT
-        'phase2_epochs': 40,
-        'phase2_backbone_lr': 1e-5,       # 2x maior: backbone precisa re-adaptar
-        'phase2_classifier_lr': 1e-4,
-        'warmup_epochs': 5,
-        'weight_decay': 0.05,             # 5x maior: mais regularização
-        'label_smoothing': 0.1,           # adicionado
-        'early_stopping_patience': 15,    # adicionado: antes era disabled
-    },
-    'cvt21': {
-        'phase1_epochs': 10,
-        'phase1_lr': 5e-4,                # reduzido de 1e-3
-        'phase2_epochs': 40,
-        'phase2_backbone_lr': 1e-5,       # 2x maior
-        'phase2_classifier_lr': 1e-4,
-        'warmup_epochs': 5,
-        'weight_decay': 0.05,             # 5x maior
-        'label_smoothing': 0.1,           # adicionado
-        'early_stopping_patience': 15,    # adicionado
     },
     'dinov2': {
         'phase1_epochs': 12,
