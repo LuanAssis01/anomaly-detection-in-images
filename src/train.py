@@ -10,7 +10,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
 import argparse
@@ -23,9 +23,13 @@ sys.path.append(BASE_DIR)
 from configs.config import *
 from configs.config import (
     USE_AMP, GRADIENT_ACCUMULATION_STEPS, USE_COMPILE,
-    FINETUNE_CONFIGS, CLASS_WEIGHTS, SCENARIOS
+    FINETUNE_CONFIGS, CLASS_WEIGHTS, SCENARIOS,
+    VAL_RATIO, TEST_RATIO
 )
-from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn, stratified_split
+from utils.dataset import (
+    ForgeryDataset, get_transforms, custom_collate_fn,
+    TransformSubset, stratified_train_val_test_split, save_split
+)
 from utils.metrics import calculate_metrics, AverageMeter
 from models import CNNModel, DINOv2Model
 
@@ -155,23 +159,51 @@ def create_model(model_type, device):
 
 
 def create_dataloaders(scenario, model_type, batch_size):
-    """Cria DataLoaders a partir do cenário"""
+    """Cria DataLoaders com split 3-way (train/val/test) sem vazamento de dados.
+
+    - Imagens originais são divididas em train/val/test
+    - Imagens augmentadas/sintéticas vão sempre para treino
+    - Validação usa transforms sem augmentation
+    - Índices do split são salvos para reutilização na avaliação
+    """
     scenario_cfg = SCENARIOS[scenario]
     train_dir = scenario_cfg['train_dir']
     masks_dir = scenario_cfg['masks_dir']
 
     model_image_size = MODEL_CONFIGS[model_type].get('image_size', IMAGE_SIZE)
 
+    # Dataset sem transform (apenas para indexação e split)
     full_dataset = ForgeryDataset(
         root_dir=train_dir,
         masks_dir=masks_dir,
-        transform=get_transforms(model_image_size, mode='train'),
+        transform=None,
         mode='train'
     )
 
-    train_idx, val_idx = stratified_split(full_dataset, val_ratio=0.2, seed=RANDOM_SEED)
-    train_dataset = Subset(full_dataset, train_idx)
-    val_dataset = Subset(full_dataset, val_idx)
+    # Split 3-way estratificado (augmentadas → treino)
+    train_idx, val_idx, test_idx = stratified_train_val_test_split(
+        full_dataset,
+        val_ratio=VAL_RATIO,
+        test_ratio=TEST_RATIO,
+        seed=RANDOM_SEED
+    )
+
+    # Salvar split para avaliação posterior
+    run_name = f"{model_type}_{scenario}"
+    split_path = os.path.join(CHECKPOINTS_DIR, f'{run_name}_split.json')
+    save_split({
+        'train_indices': train_idx,
+        'val_indices': val_idx,
+        'test_indices': test_idx,
+    }, split_path)
+    print(f"  Split salvo em: {split_path}")
+
+    # Subsets com transforms apropriados
+    train_transform = get_transforms(model_image_size, mode='train')
+    val_transform = get_transforms(model_image_size, mode='val')
+
+    train_dataset = TransformSubset(full_dataset, train_idx, train_transform)
+    val_dataset = TransformSubset(full_dataset, val_idx, val_transform)
 
     loader_kwargs = dict(
         batch_size=batch_size,

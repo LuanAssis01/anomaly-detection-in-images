@@ -89,6 +89,10 @@ AUGMENTATION = {
     'gauss_noise_std': 0.02, # simula artefatos de compressão JPEG (prob 0.2, std 0.02)
 }
 
+# Proporções do split train/val/test (aplicadas sobre imagens originais)
+VAL_RATIO = 0.15
+TEST_RATIO = 0.15
+
 # Threshold de decisão para classificação (< 0.5 favorece recall)
 DECISION_THRESHOLD = 0.4
 

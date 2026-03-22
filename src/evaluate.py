@@ -18,7 +18,10 @@ sys.path.append(BASE_DIR)
 
 from configs.config import *
 from configs.config import USE_AMP, DECISION_THRESHOLD, SCENARIOS
-from utils.dataset import ForgeryDataset, get_transforms, custom_collate_fn
+from utils.dataset import (
+    ForgeryDataset, get_transforms, custom_collate_fn,
+    TransformSubset, load_split
+)
 from utils.metrics import calculate_metrics
 from utils.visualization import plot_confusion_matrix, visualize_predictions
 from models import CNNModel, DINOv2Model
@@ -67,14 +70,11 @@ def load_model(model_type: str, checkpoint_path: str, device):
     return model
 
 
-def evaluate_model(model, dataloader, device, threshold=None):
-    """Avalia modelo no dataset com threshold de decisão configurável e mede tempo"""
-    if threshold is None:
-        threshold = DECISION_THRESHOLD
+def collect_predictions(model, dataloader, device):
+    """Coleta probabilidades e labels do modelo (sem aplicar threshold)"""
     model.eval()
 
     all_labels = []
-    all_predictions = []
     all_probs = []
     all_images = []
 
@@ -90,10 +90,8 @@ def evaluate_model(model, dataloader, device, threshold=None):
             with torch.amp.autocast('cuda', enabled=use_amp):
                 outputs = model(images)
             probs = torch.softmax(outputs, dim=1)[:, 1]
-            predicted = (probs >= threshold).long()
 
             all_labels.extend(labels.cpu().numpy())
-            all_predictions.extend(predicted.cpu().numpy())
             all_probs.extend(probs.cpu().numpy())
 
             if len(all_images) < 16:
@@ -101,16 +99,78 @@ def evaluate_model(model, dataloader, device, threshold=None):
 
     eval_time = time.time() - eval_start
 
-    metrics = calculate_metrics(
-        np.array(all_labels),
-        np.array(all_predictions),
-        np.array(all_probs)
-    )
+    return np.array(all_labels), np.array(all_probs), all_images[:16], eval_time
+
+
+def apply_threshold(labels, probs, threshold):
+    """Aplica threshold nas probabilidades e calcula métricas"""
+    predictions = (probs >= threshold).astype(int)
+    metrics = calculate_metrics(labels, predictions, probs)
     metrics['threshold'] = threshold
+    return metrics, predictions
+
+
+def evaluate_model(model, dataloader, device, threshold=None):
+    """Avalia modelo no dataset com threshold de decisão configurável e mede tempo"""
+    if threshold is None:
+        threshold = DECISION_THRESHOLD
+
+    labels, probs, images, eval_time = collect_predictions(model, dataloader, device)
+    metrics, predictions = apply_threshold(labels, probs, threshold)
     metrics['eval_time_seconds'] = round(eval_time, 2)
     metrics['eval_time_formatted'] = format_time(eval_time)
 
-    return metrics, all_labels, all_predictions, all_images[:16]
+    return metrics, labels.tolist(), predictions.tolist(), images
+
+
+def threshold_analysis(labels, probs, thresholds=None):
+    """
+    Analisa o impacto de diferentes thresholds nas métricas.
+
+    Args:
+        labels: Labels verdadeiros
+        probs: Probabilidades preditas
+        thresholds: Lista de thresholds a testar (default: 0.30 a 0.70 em passos de 0.05)
+
+    Returns:
+        dict com resultados por threshold e thresholds ótimos por métrica
+    """
+    if thresholds is None:
+        thresholds = [round(t * 0.05, 2) for t in range(6, 15)]  # 0.30 a 0.70
+
+    results = []
+    for t in thresholds:
+        metrics, _ = apply_threshold(labels, probs, t)
+        results.append({
+            'threshold': t,
+            'accuracy': metrics['accuracy'],
+            'precision': metrics['precision'],
+            'recall': metrics['recall'],
+            'f1_score': metrics['f1_score'],
+            'specificity': metrics.get('specificity', 0),
+            'false_positives': metrics.get('false_positives', 0),
+            'false_negatives': metrics.get('false_negatives', 0),
+        })
+
+    # Encontrar threshold ótimo por métrica
+    optimal = {}
+    for metric_name in ['accuracy', 'f1_score']:
+        best = max(results, key=lambda r: r[metric_name])
+        optimal[f'best_{metric_name}'] = {
+            'threshold': best['threshold'],
+            'value': best[metric_name],
+        }
+
+    # Balanced accuracy = (recall + specificity) / 2
+    for r in results:
+        r['balanced_accuracy'] = (r['recall'] + r['specificity']) / 2
+    best_balanced = max(results, key=lambda r: r['balanced_accuracy'])
+    optimal['best_balanced_accuracy'] = {
+        'threshold': best_balanced['threshold'],
+        'value': best_balanced['balanced_accuracy'],
+    }
+
+    return {'per_threshold': results, 'optimal': optimal}
 
 
 def print_metrics(model_name: str, scenario: str, metrics: dict):
@@ -149,6 +209,8 @@ def main():
                       help='Gerar visualizações (confusion matrix, predictions)')
     parser.add_argument('--threshold', type=float, default=None,
                       help=f'Threshold de decisão (default: {DECISION_THRESHOLD} do config)')
+    parser.add_argument('--threshold-analysis', action='store_true',
+                      help='Analisa múltiplos thresholds e encontra o ótimo por métrica')
 
     args = parser.parse_args()
 
@@ -176,24 +238,29 @@ def main():
 
             print(f"\n>>> Avaliando {model_type} | cenário: {scenario}")
 
-            # Dataset de teste (split val do cenário)
+            # Carregar split salvo durante o treino (garante mesmos índices)
             model_image_size = MODEL_CONFIGS[model_type].get('image_size', IMAGE_SIZE)
+            split_path = os.path.join(CHECKPOINTS_DIR, f'{run_name}_split.json')
 
+            if not os.path.exists(split_path):
+                print(f"  Split não encontrado: {split_path}")
+                print(f"  Re-treine o modelo para gerar o arquivo de split.")
+                continue
+
+            split_data = load_split(split_path)
+            test_indices = split_data['test_indices']
+
+            # Dataset sem transform (para indexação)
             full_dataset = ForgeryDataset(
                 root_dir=train_dir,
                 masks_dir=scenario_cfg['masks_dir'],
-                transform=get_transforms(model_image_size, mode='val'),
+                transform=None,
                 mode='test'
             )
 
-            from torch.utils.data import random_split
-            train_size = int(0.8 * len(full_dataset))
-            test_size = len(full_dataset) - train_size
-            _, test_dataset = random_split(
-                full_dataset,
-                [train_size, test_size],
-                generator=torch.Generator().manual_seed(RANDOM_SEED)
-            )
+            # Subset de teste com transforms de validação (só originais, sem augmentation)
+            val_transform = get_transforms(model_image_size, mode='val')
+            test_dataset = TransformSubset(full_dataset, test_indices, val_transform)
 
             test_loader = DataLoader(
                 test_dataset,
@@ -206,14 +273,56 @@ def main():
                 collate_fn=custom_collate_fn
             )
 
-            print(f"Samples de teste: {len(test_dataset)}")
+            print(f"Samples de teste: {len(test_dataset)} [apenas imagens originais]")
+
+            if len(test_dataset) == 0:
+                print(f"  ⚠ Nenhuma imagem encontrada para {run_name}. Pulando...")
+                continue
 
             model = load_model(model_type, checkpoint_path, device)
             threshold = args.threshold if args.threshold is not None else DECISION_THRESHOLD
-            metrics, labels, predictions, images = evaluate_model(model, test_loader, device, threshold=threshold)
+
+            # Coletar probabilidades uma vez (usado tanto para avaliação quanto análise)
+            labels_arr, probs_arr, images, eval_time = collect_predictions(model, test_loader, device)
+            metrics, predictions_arr = apply_threshold(labels_arr, probs_arr, threshold)
+            metrics['eval_time_seconds'] = round(eval_time, 2)
+            metrics['eval_time_formatted'] = format_time(eval_time)
+
+            labels = labels_arr.tolist()
+            predictions = predictions_arr.tolist()
 
             all_results[run_name] = metrics
             print_metrics(MODEL_CONFIGS[model_type]['name'], scenario, metrics)
+
+            # Análise de threshold
+            if args.threshold_analysis:
+                analysis = threshold_analysis(labels_arr, probs_arr)
+                print(f"\n{'─'*80}")
+                print(f"ANÁLISE DE THRESHOLD - {MODEL_CONFIGS[model_type]['name']} | {scenario}")
+                print(f"{'─'*80}")
+                print(f"{'Threshold':<12} {'Acc':<8} {'Prec':<8} {'Rec':<8} {'F1':<8} {'Spec':<8} {'BalAcc':<8} {'FP':<6} {'FN':<6}")
+                print(f"{'─'*80}")
+                for r in analysis['per_threshold']:
+                    marker = ' <<<' if r['threshold'] == analysis['optimal']['best_f1_score']['threshold'] else ''
+                    print(f"{r['threshold']:<12.2f} "
+                          f"{r['accuracy']*100:<8.2f} "
+                          f"{r['precision']:<8.4f} "
+                          f"{r['recall']:<8.4f} "
+                          f"{r['f1_score']:<8.4f} "
+                          f"{r['specificity']:<8.4f} "
+                          f"{r['balanced_accuracy']:<8.4f} "
+                          f"{r['false_positives']:<6d} "
+                          f"{r['false_negatives']:<6d}"
+                          f"{marker}")
+                print(f"\nThresholds ótimos:")
+                for key, val in analysis['optimal'].items():
+                    print(f"  {key}: threshold={val['threshold']:.2f} (valor={val['value']:.4f})")
+
+                # Salvar análise
+                analysis_path = os.path.join(RESULTS_DIR, f'{run_name}_threshold_analysis.json')
+                with open(analysis_path, 'w') as f:
+                    json.dump(analysis, f, indent=2)
+                print(f"\nAnálise salva em: {analysis_path}")
 
             # Salvar métricas em JSON
             results_path = os.path.join(RESULTS_DIR, f'{run_name}_test_results.json')
@@ -242,22 +351,36 @@ def main():
 
     # Comparação geral
     if len(all_results) > 1:
-        print(f"\n{'='*90}")
+        # Carregar tempos de treino dos arquivos de histórico
+        train_times = {}
+        for run_name in all_results:
+            history_path = os.path.join(RESULTS_DIR, f'{run_name}_history.json')
+            if os.path.exists(history_path):
+                with open(history_path) as hf:
+                    h = json.load(hf)
+                timing = h.get('timing', {})
+                train_times[run_name] = timing.get('total_train_formatted', '---')
+            else:
+                train_times[run_name] = '---'
+
+        col = 110
+        print(f"\n{'='*col}")
         print(f"COMPARAÇÃO GERAL")
-        print(f"{'='*90}")
-        print(f"{'Run':<30} {'Acc':<8} {'Prec':<8} {'Rec':<8} {'F1':<8} {'AUC':<8} {'Tempo':<12}")
-        print(f"{'─'*90}")
+        print(f"{'='*col}")
+        print(f"{'Run':<32} {'Acc':<8} {'Prec':<8} {'Rec':<8} {'F1':<8} {'AUC':<8} {'T.Treino':<14} {'T.Teste':<12}")
+        print(f"{'─'*col}")
 
         for run_name, metrics in all_results.items():
-            print(f"{run_name:<30} "
+            print(f"{run_name:<32} "
                   f"{metrics['accuracy']*100:<8.2f} "
                   f"{metrics['precision']:<8.4f} "
                   f"{metrics['recall']:<8.4f} "
                   f"{metrics['f1_score']:<8.4f} "
                   f"{metrics.get('roc_auc', 0):<8.4f} "
+                  f"{train_times.get(run_name, '---'):<14} "
                   f"{metrics['eval_time_formatted']:<12}")
 
-        print(f"{'='*90}\n")
+        print(f"{'='*col}\n")
 
         # Salvar comparação
         comparison_path = os.path.join(RESULTS_DIR, 'evaluation_comparison.json')
@@ -269,6 +392,7 @@ def main():
                 'recall': metrics['recall'],
                 'f1_score': metrics['f1_score'],
                 'roc_auc': metrics.get('roc_auc', 0),
+                'train_time': train_times.get(run_name, '---'),
                 'eval_time_seconds': metrics['eval_time_seconds'],
                 'eval_time_formatted': metrics['eval_time_formatted'],
             }
