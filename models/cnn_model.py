@@ -4,6 +4,7 @@ Modelo ResNet para detecção de imagens forjadas
 import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models import ResNet50_Weights
 
 class CNNModel(nn.Module):
     """
@@ -12,12 +13,13 @@ class CNNModel(nn.Module):
     """
     def __init__(self, num_classes: int = 2, model_name: str = 'resnet50', pretrained: bool = True):
         super(CNNModel, self).__init__()
-        
+
         self.model_name = model_name
-        
-        # Carregar ResNet pré-treinado
+
+        # Carregar ResNet pré-treinado (API atualizada, sem deprecation warning)
         if model_name == 'resnet50':
-            self.backbone = models.resnet50(pretrained=pretrained)
+            weights = ResNet50_Weights.DEFAULT if pretrained else None
+            self.backbone = models.resnet50(weights=weights)
             feature_dim = 2048
         
         # Remover a última camada FC

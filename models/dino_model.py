@@ -35,7 +35,7 @@ class DINOv2Model(nn.Module):
     def forward(self, pixel_values):
         """
         Args:
-            pixel_values: Tensor [batch_size, 3, 224, 224]
+            pixel_values: Tensor [batch_size, 3, H, W] — default IMAGE_SIZE=384
         Returns:
             logits: Tensor [batch_size, num_classes]
         """

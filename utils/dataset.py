@@ -11,18 +11,6 @@ from torchvision import transforms
 from typing import Tuple, Optional, List
 
 
-class GaussianNoise:
-    """Adiciona ruído gaussiano ao tensor (simula artefatos de compressão JPEG)"""
-    def __init__(self, p=0.2, std=0.02):
-        self.p = p
-        self.std = std
-
-    def __call__(self, tensor):
-        if torch.rand(1).item() < self.p:
-            noise = torch.randn_like(tensor) * self.std
-            return torch.clamp(tensor + noise, 0.0, 1.0)
-        return tensor
-
 class ForgeryDataset(Dataset):
     """
     Dataset para classificação e segmentação de imagens forjadas
@@ -54,16 +42,16 @@ class ForgeryDataset(Dataset):
         # Imagens autênticas (classe 0)
         authentic_dir = os.path.join(root_dir, 'authentic')
         if os.path.exists(authentic_dir):
-            for img_name in os.listdir(authentic_dir):
+            for img_name in sorted(os.listdir(authentic_dir)):
                 if img_name.endswith(('.png', '.jpg', '.jpeg')):
                     self.image_paths.append(os.path.join(authentic_dir, img_name))
                     self.labels.append(0)
                     self.mask_paths.append(None)  # Autênticas não têm máscaras
-        
+
         # Imagens forjadas (classe 1)
         forged_dir = os.path.join(root_dir, 'forged')
         if os.path.exists(forged_dir):
-            for img_name in os.listdir(forged_dir):
+            for img_name in sorted(os.listdir(forged_dir)):
                 if img_name.endswith(('.png', '.jpg', '.jpeg')):
                     img_path = os.path.join(forged_dir, img_name)
                     self.image_paths.append(img_path)
@@ -115,67 +103,36 @@ class ForgeryDataset(Dataset):
 
 def get_transforms(image_size: int = 224, mode: str = 'train') -> transforms.Compose:
     """
-    Retorna transformações apropriadas para treino (pesado), validação/teste (leve),
-    ou treino leve (para autênticas e imagens já augmentadas).
+    Retorna transformações para treino ou validação/teste.
 
     Modos:
-        'train'      — augmentation completa (só para forjadas originais no runtime)
-        'train_light' — apenas horizontal flip + resize + normalize
-                        (para autênticas e forjadas já augmentadas/sintéticas)
+        'train'      — augmentation conservadora aplicada igualmente a todas as imagens
+                       (flip + rotação leve + colorjitter leve)
+        'train_light' — alias de 'train', mantido por compatibilidade
         'val'/'test' — apenas resize + normalize (sem augmentation)
+
+    Augmentation conservadora (mesma para ambas as classes):
+      - RandomErasing, GaussianNoise e GaussianBlur foram removidos pois criam
+        distribuições de treino/teste muito diferentes, levando ao colapso do modelo.
+      - ColorJitter e rotação leve aumentam robustez sem destruir artefatos forenses.
     """
-    if mode == 'train':
-        from configs.config import AUGMENTATION
-        transform_list = [
-            transforms.Resize((image_size, image_size)),
-            transforms.RandomHorizontalFlip(p=AUGMENTATION.get('horizontal_flip', 0.5)),
-            transforms.RandomVerticalFlip(p=AUGMENTATION.get('vertical_flip', 0.3)),
-            transforms.RandomRotation(AUGMENTATION.get('rotation_degrees', 15)),
-            transforms.ColorJitter(
-                brightness=AUGMENTATION.get('brightness', 0.2),
-                contrast=AUGMENTATION.get('contrast', 0.2),
-                saturation=AUGMENTATION.get('saturation', 0.0),
-                hue=AUGMENTATION.get('hue', 0.0),
-            ),
-        ]
-        # Gaussian Blur — simula degradação de qualidade (aplicado antes de ToTensor)
-        if AUGMENTATION.get('gauss_blur', 0) > 0:
-            transform_list.append(
-                transforms.RandomApply(
-                    [transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))],
-                    p=AUGMENTATION['gauss_blur']
-                )
-            )
-        transform_list.extend([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                               std=[0.229, 0.224, 0.225]),
-        ])
-        # Gaussian Noise — simula artefatos de compressão (aplicado após ToTensor)
-        gauss_noise_std = AUGMENTATION.get('gauss_noise_std', 0)
-        if gauss_noise_std > 0:
-            transform_list.append(GaussianNoise(p=0.2, std=gauss_noise_std))
-        # Random Erasing — aplicado após ToTensor/Normalize
-        if AUGMENTATION.get('random_erasing', 0) > 0:
-            transform_list.append(
-                transforms.RandomErasing(p=AUGMENTATION['random_erasing'], scale=(0.02, 0.15))
-            )
-        return transforms.Compose(transform_list)
-    elif mode == 'train_light':
-        # Transforms leves: preserva features de autenticidade e evita double augmentation
+    if mode in ('train', 'train_light'):
         return transforms.Compose([
             transforms.Resize((image_size, image_size)),
             transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=0.2),
+            transforms.RandomRotation(10),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.03),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                               std=[0.229, 0.224, 0.225]),
+                                 std=[0.229, 0.224, 0.225]),
         ])
     else:
         return transforms.Compose([
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                               std=[0.229, 0.224, 0.225])
+                                 std=[0.229, 0.224, 0.225])
         ])
 
 def stratified_split(dataset: ForgeryDataset, val_ratio: float = 0.2,
@@ -228,17 +185,8 @@ def is_augmented_image(filepath: str) -> bool:
 
 class TransformSubset(Dataset):
     """
-    Subset de um ForgeryDataset com política de augmentation ASSIMÉTRICA.
-
-    Política (previne destruição de features e double augmentation):
-      - Autênticas (label=0): sempre transforms LEVES
-        (preserva padrões de sensor, compressão JPEG, metadados visuais)
-      - Forjadas originais (label=1, não augmentada): transforms PESADOS
-        (artefatos de forgery são robustos e toleram augmentation)
-      - Forjadas já augmentadas/sintéticas (label=1, augmentada): transforms LEVES
-        (evita double augmentation que destrói artefatos de forgery)
-
-    Para val/test, usa apenas o transform padrão (sem augmentation).
+    Subset de um ForgeryDataset com transform próprio.
+    Garante que train/val/test usem políticas de augmentation diferentes.
     """
     def __init__(self, base_dataset: 'ForgeryDataset', indices: List[int],
                  transform: transforms.Compose,
@@ -246,7 +194,7 @@ class TransformSubset(Dataset):
         self.base_dataset = base_dataset
         self.indices = indices
         self.transform = transform
-        self.transform_light = transform_light
+        self.transform_light = transform_light  # reservado, não usado
 
     def __len__(self) -> int:
         return len(self.indices)
@@ -269,20 +217,7 @@ class TransformSubset(Dataset):
             except Exception:
                 mask = None
 
-        # Política assimétrica de transforms
-        if self.transform_light is not None:
-            # Modo treino: escolher transform baseado no label e tipo de imagem
-            if label == 0:
-                # Autêntica → sempre leve
-                image = self.transform_light(image)
-            elif is_augmented_image(img_path):
-                # Forjada já augmentada/sintética → leve (evita double augmentation)
-                image = self.transform_light(image)
-            else:
-                # Forjada original → augmentation completa
-                image = self.transform(image)
-        elif self.transform:
-            # Modo val/test: transform único (sem augmentation)
+        if self.transform:
             image = self.transform(image)
 
         return image, label, mask

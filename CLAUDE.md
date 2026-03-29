@@ -69,15 +69,11 @@ Pipeline de dados:
   Loss: CrossEntropyLoss(weights=[1.0, 1.5], label_smoothing)
   Threshold de decisão: 0.4 (favorece recall)
 
-Prevenção de double augmentation e preservação de autenticidade:
-  - Imagens AUTÊNTICAS (originais e augmentadas): sempre transforms LEVES
-    (apenas horizontal flip + resize + normalize). Transforms pesados destroem
-    features de autenticidade (padrões de sensor, JPEG, metadados visuais).
-  - Imagens FORJADAS originais: augmentation COMPLETA no runtime (AUGMENTATION)
-    Artefatos de forgery são robustos e toleram transforms pesados.
-  - Imagens FORJADAS já augmentadas/sintéticas: transforms LEVES
-    (evita double augmentation que destrói artefatos de forgery)
-  - Controlado automaticamente pelo TransformSubset via label + is_augmented_image()
+Augmentation no runtime (mesma política para todas as imagens de treino):
+  - flips horizontal/vertical + rotação ±10° + ColorJitter leve
+  - Aplicada igualmente a autênticas e forjadas — evita correlação espúria
+    onde o modelo aprende "distorção = forjado" em vez de artefatos reais
+  - Val e test sem augmentation (só resize + normalize)
 
 Geração offline (generate_data.py):
   - Autênticas: augmentation mínima (apenas horizontal flip)
@@ -146,11 +142,11 @@ Funcionamento:
 
 🛠️ CONFIGURAÇÕES PRINCIPAIS (configs/config.py)
 -------------------------------------------------
-- BATCH_SIZE: 8 (efetivo 16 com gradient accumulation)
+- BATCH_SIZE: 8 (efetivo 16 com GRADIENT_ACCUMULATION_STEPS=2)
 - IMAGE_SIZE: 384 (resolução alta para forgeries sutis)
 - USE_AMP: True (Mixed Precision FP16)
-- CLASS_WEIGHTS: [1.0, 1.5] global (sobrescrito por modelo via FINETUNE_CONFIGS)
-- DECISION_THRESHOLD: 0.4 (favorece recall)
+- GRADIENT_ACCUMULATION_STEPS: 2 (batch efetivo = 8 × 2 = 16)
+- DECISION_THRESHOLD: 0.4 (favorece recall, usado em evaluate.py e app.py)
 
 ResNet-50 fine-tuning:
   Fase 1: 8 épocas, LR 5e-4 (backbone congelado)
@@ -162,15 +158,12 @@ DINOv2 fine-tuning:
   Fase 1: 12 épocas, LR 5e-4 (backbone congelado)
   Fase 2: 35 épocas, backbone LR 5e-6, classifier LR 5e-5
   Warmup: 4 épocas, label smoothing: 0.05, weight_decay: 0.05
+  class_weights: [1.0, 1.5] — penaliza mais FN de forged
 
-Data augmentation:
-  Política ASSIMÉTRICA — autênticas recebem transforms leves, forjadas pesados.
-
-  AUGMENTATION (só forjadas originais no runtime):
-    flips, rotação ±15°, ColorJitter, GaussianBlur, GaussianNoise, RandomErasing
-
-  AUGMENTATION_LIGHT (autênticas + forjadas já augmentadas/sintéticas):
-    apenas horizontal flip + resize + normalize
+Data augmentation (runtime, mesma política para ambas as classes):
+  flips (H+V), rotação ±10°, ColorJitter leve
+  Sem GaussianBlur/GaussianNoise/RandomErasing — criam distribuição
+  treino/teste muito diferente e causam colapso do modelo.
 
   Geração offline (generate_data.py):
     Autênticas: apenas horizontal flip (AUTHENTIC_AUGMENTATION)
@@ -199,10 +192,11 @@ Salvos automaticamente em:
 🆘 TROUBLESHOOTING
 ------------------
 - CUDA out of memory: Reduza BATCH_SIZE em config.py
-- Modelo colapsando (~50% acc): Verificar se AUGMENTATION_LIGHT está sendo
-  aplicado a autênticas e imagens já augmentadas. Transforms pesados em
-  autênticas destroem features de autenticidade; double augmentation em
-  forjadas destrói artefatos de forgery — ambos causam colapso.
+- Modelo colapsando (recall ~0%): Augmentation assimétrica por classe cria
+  correlação espúria (modelo aprende "distorção = forjado"). Manter a mesma
+  augmentation para ambas as classes durante o treino.
+- Cenários idênticos: Se o dataset original já tem >= target imagens por classe,
+  no_synthetic e with_synthetic ficam iguais. Use --target maior ao gerar dados.
 - Dataset vazio: Rodar generate_data.py antes de treinar
 
 ================================================================================

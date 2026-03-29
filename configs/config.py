@@ -75,20 +75,6 @@ MODEL_CONFIGS = {
     }
 }
 
-# Configurações de data augmentation
-AUGMENTATION = {
-    'horizontal_flip': 0.5,
-    'vertical_flip': 0.3,
-    'rotation_degrees': 15,
-    'brightness': 0.15,
-    'contrast': 0.15,
-    'saturation': 0.1,
-    'hue': 0.08,
-    'random_erasing': 0.3,   # máscara aleatória — força o modelo a olhar regiões distintas
-    'gauss_blur': 0.2,       # simula degradação de qualidade / compressão
-    'gauss_noise_std': 0.02, # simula artefatos de compressão JPEG (prob 0.2, std 0.02)
-}
-
 # Proporções do split train/val/test (aplicadas sobre imagens originais)
 VAL_RATIO = 0.15
 TEST_RATIO = 0.15
@@ -104,23 +90,27 @@ FINETUNE_CONFIGS = {
         'phase1_lr': 5e-4,
         # Fase 2: fine-tuning completo com lr diferenciado
         'phase2_epochs': 40,
-        'phase2_backbone_lr': 2e-5,       # revertido: 5e-5 era agressivo demais, modelo colapsou
+        'phase2_backbone_lr': 2e-5,
         'phase2_classifier_lr': 2e-4,
         'warmup_epochs': 3,
-        'weight_decay': 1e-4,             # revertido: 1e-3 + class_weights causou colapso para forged
-        'label_smoothing': 0.1,
+        'weight_decay': 1e-4,
+        'label_smoothing': 0.05,
         'early_stopping_patience': 12,
+        # Pesos por classe: neutro para ResNet, evita colapso para forged
+        'class_weights': [1.0, 1.0],
     },
     'dinov2': {
         'phase1_epochs': 12,
         'phase1_lr': 5e-4,
-        'phase2_epochs': 35,           # +15: mais tempo para fine-tuning com resolução 384
-        'phase2_backbone_lr': 5e-6,    # 5x maior: backbone precisa adaptar mais para 384px
-        'phase2_classifier_lr': 5e-5,  # 2.5x maior: alinhado com aumento do backbone LR
+        'phase2_epochs': 35,
+        'phase2_backbone_lr': 5e-6,
+        'phase2_classifier_lr': 5e-5,
         'warmup_epochs': 4,
         'weight_decay': 0.05,
-        'label_smoothing': 0.05,       # reduzido de 0.1: suavizava demais o sinal de forged
-        'early_stopping_patience': 12, # 2x mais paciente: com LR baixo, melhora é gradual
+        'label_smoothing': 0.05,
+        'early_stopping_patience': 12,
+        # Peso maior para forged: DINOv2 se beneficia de penalizar mais FN
+        'class_weights': [1.0, 1.5],
     },
 }
 

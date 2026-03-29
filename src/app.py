@@ -13,6 +13,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
 from configs.config import *
+from configs.config import DECISION_THRESHOLD
 from models import CNNModel, DINOv2Model
 
 class ForgeryDetector:
@@ -86,18 +87,20 @@ class ForgeryDetector:
         image = Image.open(image_path).convert('RGB')
         image_tensor = self.transform(image).unsqueeze(0).to(self.device)
         
-        # Predição
+        # Predição com DECISION_THRESHOLD (consistente com evaluate.py)
         with torch.no_grad():
             output = self.model(image_tensor)
             probs = torch.softmax(output, dim=1)
-            pred_class = torch.argmax(probs, dim=1).item()
+            prob_forged = probs[0, 1].item()
+            pred_class = 1 if prob_forged >= DECISION_THRESHOLD else 0
             confidence = probs[0, pred_class].item()
-        
+
         result = {
             'class': 'Forged' if pred_class == 1 else 'Authentic',
             'confidence': confidence * 100,
             'prob_authentic': probs[0, 0].item() * 100,
-            'prob_forged': probs[0, 1].item() * 100
+            'prob_forged': prob_forged * 100,
+            'threshold': DECISION_THRESHOLD,
         }
         
         return result

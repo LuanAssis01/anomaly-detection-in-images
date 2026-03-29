@@ -191,13 +191,10 @@ def create_dataloaders(scenario, model_type, batch_size):
         seed=RANDOM_SEED
     )
 
-    # Política assimétrica de transforms
-    train_transform_heavy = get_transforms(model_image_size, mode='train')
-    train_transform_light = get_transforms(model_image_size, mode='train_light')
+    train_transform = get_transforms(model_image_size, mode='train')
     val_transform = get_transforms(model_image_size, mode='val')
 
-    train_dataset = TransformSubset(full_dataset, train_idx, train_transform_heavy,
-                                    transform_light=train_transform_light)
+    train_dataset = TransformSubset(full_dataset, train_idx, train_transform)
     val_dataset = TransformSubset(full_dataset, val_idx, val_transform)
 
     loader_kwargs = dict(

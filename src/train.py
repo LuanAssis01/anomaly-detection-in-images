@@ -198,15 +198,11 @@ def create_dataloaders(scenario, model_type, batch_size):
     }, split_path)
     print(f"  Split salvo em: {split_path}")
 
-    # Subsets com transforms apropriados (política assimétrica no treino)
-    train_transform_heavy = get_transforms(model_image_size, mode='train')
-    train_transform_light = get_transforms(model_image_size, mode='train_light')
+    # Subsets com transforms apropriados
+    train_transform = get_transforms(model_image_size, mode='train')
     val_transform = get_transforms(model_image_size, mode='val')
 
-    # Treino: TransformSubset aplica heavy só em forjadas originais, light no resto
-    train_dataset = TransformSubset(full_dataset, train_idx, train_transform_heavy,
-                                    transform_light=train_transform_light)
-    # Val: sem augmentation (transform_light=None → usa só o transform padrão)
+    train_dataset = TransformSubset(full_dataset, train_idx, train_transform)
     val_dataset = TransformSubset(full_dataset, val_idx, val_transform)
 
     loader_kwargs = dict(
@@ -236,7 +232,7 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
         dict com histórico e tempos
     """
     ft_cfg = FINETUNE_CONFIGS[model_type]
-    accumulation_steps = ft_cfg.get('accumulation_steps', 1)
+    accumulation_steps = ft_cfg.get('accumulation_steps', GRADIENT_ACCUMULATION_STEPS)
     effective_batch = batch_size * accumulation_steps
     run_name = f"{model_type}_{scenario}"
 
@@ -272,9 +268,12 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
         print("AMP (FP16) ativado")
 
     label_smoothing = ft_cfg.get('label_smoothing', 0.0)
-    if CLASS_WEIGHTS is not None:
-        weight = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(device)
+    # Usar class_weights por modelo (definido em FINETUNE_CONFIGS), fallback para global
+    model_class_weights = ft_cfg.get('class_weights', CLASS_WEIGHTS)
+    if model_class_weights is not None:
+        weight = torch.tensor(model_class_weights, dtype=torch.float32).to(device)
         criterion = nn.CrossEntropyLoss(weight=weight, label_smoothing=label_smoothing)
+        print(f"  Class weights: {model_class_weights}")
     else:
         criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
