@@ -736,6 +736,10 @@ def main():
 
         # --- 2. Augmentar autênticas para atingir target ---
         need_authentic = max(0, target - n_authentic)
+        if need_authentic == 0 and target <= n_authentic:
+            print(f"\n  [AVISO] Dataset original já tem {n_authentic} autênticas (target={target}).")
+            print(f"  Para diferenciar cenários, use --target maior que {n_authentic}.")
+            print(f"  Ex: python src/generate_data.py --scenario {scenario} --target {int(n_authentic * 1.5)}")
         print(f"\n[2/5] Copiando {n_authentic} autênticas + gerando {need_authentic} augmentadas...")
 
         save_images(authentic_images, authentic_dir)
@@ -752,6 +756,9 @@ def main():
         synthetic_imgs = []
         synthetic_masks = []
         need_forged = max(0, target - n_forged)
+        if need_forged == 0 and target <= n_forged:
+            print(f"\n  [AVISO] Dataset original já tem {n_forged} forjadas (target={target}).")
+            print(f"  Para diferenciar cenários, use --target maior que {n_forged}.")
 
         if generate_synthetic and n_authentic > 0:
             n_synthetic = int(need_forged * args.synthetic_ratio)

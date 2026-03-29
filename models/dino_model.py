@@ -19,14 +19,16 @@ class DINOv2Model(nn.Module):
         # Dimensão de saída do DINOv2
         self.hidden_size = self.dino.config.hidden_size
         
-        # Cabeça de classificação
+        # Cabeça de classificação (dropout reduzido para não sub-utilizar features)
         self.classifier = nn.Sequential(
             nn.Linear(self.hidden_size, 768),
-            nn.GELU(),
-            nn.Dropout(0.5),   # mais agressivo: DINOv2 features são muito ricas
-            nn.Linear(768, 384),
+            nn.LayerNorm(768),
             nn.GELU(),
             nn.Dropout(0.3),
+            nn.Linear(768, 384),
+            nn.LayerNorm(384),
+            nn.GELU(),
+            nn.Dropout(0.2),
             nn.Linear(384, num_classes)
         )
         

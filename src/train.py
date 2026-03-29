@@ -198,11 +198,15 @@ def create_dataloaders(scenario, model_type, batch_size):
     }, split_path)
     print(f"  Split salvo em: {split_path}")
 
-    # Subsets com transforms apropriados
-    train_transform = get_transforms(model_image_size, mode='train')
+    # Subsets com transforms apropriados (política assimétrica no treino)
+    train_transform_heavy = get_transforms(model_image_size, mode='train')
+    train_transform_light = get_transforms(model_image_size, mode='train_light')
     val_transform = get_transforms(model_image_size, mode='val')
 
-    train_dataset = TransformSubset(full_dataset, train_idx, train_transform)
+    # Treino: TransformSubset aplica heavy só em forjadas originais, light no resto
+    train_dataset = TransformSubset(full_dataset, train_idx, train_transform_heavy,
+                                    transform_light=train_transform_light)
+    # Val: sem augmentation (transform_light=None → usa só o transform padrão)
     val_dataset = TransformSubset(full_dataset, val_idx, val_transform)
 
     loader_kwargs = dict(

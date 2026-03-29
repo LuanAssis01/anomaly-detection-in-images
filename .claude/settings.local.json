@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find /c/Users/Luan/Documents/anomaly-detection-in-images -type f -name *.md)"
+      "Bash(find /c/Users/Luan/Documents/anomaly-detection-in-images -type f -name *.md)",
+      "Bash(ls -d /c/Users/Luan/Documents/anomaly-detection-in-images/data/train_images/*/)",
+      "Bash(ls -d /c/Users/Luan/Documents/anomaly-detection-in-images/data/scenarios/*/)"
     ]
   }
 }

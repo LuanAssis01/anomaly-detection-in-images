@@ -41,18 +41,25 @@ echo "   8) Treinar tudo - cenário SEM augmentation"
 echo "   9) Treinar tudo - cenário COM augmentation, SEM sintéticas"
 echo "  10) Treinar tudo - cenário COM sintéticas"
 echo ""
+echo "  --- HYPERPARAMETER SEARCH ---"
+echo "  11) Grid Search - ResNet-50 (todos cenários)"
+echo "  12) Grid Search - DINOv2 (todos cenários)"
+echo "  13) Randomized Search - ResNet-50 (20 trials, todos cenários)"
+echo "  14) Randomized Search - DINOv2 (20 trials, todos cenários)"
+echo "  15) Grid Search - todos os modelos e cenários"
+echo ""
 echo "  --- AVALIAÇÃO ---"
-echo "  11) Avaliar todos os modelos treinados"
-echo "  12) Executar análise comparativa"
-echo "  13) Demo interativa"
+echo "  16) Avaliar todos os modelos treinados"
+echo "  17) Executar análise comparativa"
+echo "  18) Demo interativa"
 echo ""
 echo "  --- PIPELINE COMPLETO ---"
-echo "  14) Gerar dados + Treinar + Avaliar (tudo de uma vez)"
+echo "  19) Gerar dados + Treinar + Avaliar (tudo de uma vez)"
 echo ""
 echo "   0) Sair"
 echo ""
 
-read -p "Escolha uma opção [0-14]: " choice
+read -p "Escolha uma opção [0-19]: " choice
 
 case $choice in
     1)
@@ -109,20 +116,45 @@ case $choice in
         ;;
     11)
         echo ""
+        echo "Grid Search - ResNet-50 (todos cenários)..."
+        python src/hyperparam_search.py --model resnet50 --scenario all --method grid
+        ;;
+    12)
+        echo ""
+        echo "Grid Search - DINOv2 (todos cenários)..."
+        python src/hyperparam_search.py --model dinov2 --scenario all --method grid
+        ;;
+    13)
+        echo ""
+        echo "Randomized Search - ResNet-50 (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model resnet50 --scenario all --method random --n-iter 20
+        ;;
+    14)
+        echo ""
+        echo "Randomized Search - DINOv2 (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov2 --scenario all --method random --n-iter 20
+        ;;
+    15)
+        echo ""
+        echo "Grid Search - todos os modelos e cenários..."
+        python src/hyperparam_search.py --model all --scenario all --method grid
+        ;;
+    16)
+        echo ""
         echo "Avaliando todos os modelos..."
         python src/evaluate.py --model all --scenario all --visualize
         ;;
-    12)
+    17)
         echo ""
         echo "Executando análise comparativa..."
         python src/analysis_notebook.py
         ;;
-    13)
+    18)
         echo ""
         echo "Iniciando demo..."
         python src/app.py
         ;;
-    14)
+    19)
         echo ""
         echo "=== PIPELINE COMPLETO ==="
         echo ""

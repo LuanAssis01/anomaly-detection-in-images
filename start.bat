@@ -36,18 +36,25 @@ echo   8) Treinar tudo - cenario SEM augmentation
 echo   9) Treinar tudo - cenario COM augmentation, SEM sinteticas
 echo  10) Treinar tudo - cenario COM sinteticas
 echo.
+echo   --- HYPERPARAMETER SEARCH ---
+echo  11) Grid Search - ResNet-50 (todos cenarios)
+echo  12) Grid Search - DINOv2 (todos cenarios)
+echo  13) Randomized Search - ResNet-50 (20 trials, todos cenarios)
+echo  14) Randomized Search - DINOv2 (20 trials, todos cenarios)
+echo  15) Grid Search - todos os modelos e cenarios
+echo.
 echo   --- AVALIACAO ---
-echo  11) Avaliar todos os modelos treinados
-echo  12) Executar analise comparativa
-echo  13) Demo interativa
+echo  16) Avaliar todos os modelos treinados
+echo  17) Executar analise comparativa
+echo  18) Demo interativa
 echo.
 echo   --- PIPELINE COMPLETO ---
-echo  14) Gerar dados + Treinar + Avaliar (tudo de uma vez)
+echo  19) Gerar dados + Treinar + Avaliar (tudo de uma vez)
 echo.
 echo   0) Sair
 echo.
 
-set /p choice="Escolha uma opcao [0-14]: "
+set /p choice="Escolha uma opcao [0-19]: "
 
 if "%choice%"=="1" (
     echo.
@@ -93,17 +100,37 @@ if "%choice%"=="1" (
     python src/train.py --model all --scenario with_synthetic
 ) else if "%choice%"=="11" (
     echo.
+    echo Grid Search - ResNet-50 (todos cenarios)...
+    python src/hyperparam_search.py --model resnet50 --scenario all --method grid
+) else if "%choice%"=="12" (
+    echo.
+    echo Grid Search - DINOv2 (todos cenarios)...
+    python src/hyperparam_search.py --model dinov2 --scenario all --method grid
+) else if "%choice%"=="13" (
+    echo.
+    echo Randomized Search - ResNet-50 (20 trials, todos cenarios)...
+    python src/hyperparam_search.py --model resnet50 --scenario all --method random --n-iter 20
+) else if "%choice%"=="14" (
+    echo.
+    echo Randomized Search - DINOv2 (20 trials, todos cenarios)...
+    python src/hyperparam_search.py --model dinov2 --scenario all --method random --n-iter 20
+) else if "%choice%"=="15" (
+    echo.
+    echo Grid Search - todos os modelos e cenarios...
+    python src/hyperparam_search.py --model all --scenario all --method grid
+) else if "%choice%"=="16" (
+    echo.
     echo Avaliando todos os modelos...
     python src/evaluate.py --model all --scenario all --visualize
-) else if "%choice%"=="12" (
+) else if "%choice%"=="17" (
     echo.
     echo Executando analise comparativa...
     python src/analysis_notebook.py
-) else if "%choice%"=="13" (
+) else if "%choice%"=="18" (
     echo.
     echo Iniciando demo...
     python src/app.py
-) else if "%choice%"=="14" (
+) else if "%choice%"=="19" (
     echo.
     echo === PIPELINE COMPLETO ===
     echo.

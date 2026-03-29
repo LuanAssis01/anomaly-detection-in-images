@@ -115,7 +115,14 @@ class ForgeryDataset(Dataset):
 
 def get_transforms(image_size: int = 224, mode: str = 'train') -> transforms.Compose:
     """
-    Retorna transformações apropriadas para treino ou validação
+    Retorna transformações apropriadas para treino (pesado), validação/teste (leve),
+    ou treino leve (para autênticas e imagens já augmentadas).
+
+    Modos:
+        'train'      — augmentation completa (só para forjadas originais no runtime)
+        'train_light' — apenas horizontal flip + resize + normalize
+                        (para autênticas e forjadas já augmentadas/sintéticas)
+        'val'/'test' — apenas resize + normalize (sem augmentation)
     """
     if mode == 'train':
         from configs.config import AUGMENTATION
@@ -154,11 +161,20 @@ def get_transforms(image_size: int = 224, mode: str = 'train') -> transforms.Com
                 transforms.RandomErasing(p=AUGMENTATION['random_erasing'], scale=(0.02, 0.15))
             )
         return transforms.Compose(transform_list)
+    elif mode == 'train_light':
+        # Transforms leves: preserva features de autenticidade e evita double augmentation
+        return transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                               std=[0.229, 0.224, 0.225]),
+        ])
     else:
         return transforms.Compose([
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                std=[0.229, 0.224, 0.225])
         ])
 
@@ -212,14 +228,25 @@ def is_augmented_image(filepath: str) -> bool:
 
 class TransformSubset(Dataset):
     """
-    Subset de um ForgeryDataset com transform próprio.
-    Garante que train/val/test usem políticas de augmentation diferentes.
+    Subset de um ForgeryDataset com política de augmentation ASSIMÉTRICA.
+
+    Política (previne destruição de features e double augmentation):
+      - Autênticas (label=0): sempre transforms LEVES
+        (preserva padrões de sensor, compressão JPEG, metadados visuais)
+      - Forjadas originais (label=1, não augmentada): transforms PESADOS
+        (artefatos de forgery são robustos e toleram augmentation)
+      - Forjadas já augmentadas/sintéticas (label=1, augmentada): transforms LEVES
+        (evita double augmentation que destrói artefatos de forgery)
+
+    Para val/test, usa apenas o transform padrão (sem augmentation).
     """
     def __init__(self, base_dataset: 'ForgeryDataset', indices: List[int],
-                 transform: transforms.Compose):
+                 transform: transforms.Compose,
+                 transform_light: Optional[transforms.Compose] = None):
         self.base_dataset = base_dataset
         self.indices = indices
         self.transform = transform
+        self.transform_light = transform_light
 
     def __len__(self) -> int:
         return len(self.indices)
@@ -242,7 +269,20 @@ class TransformSubset(Dataset):
             except Exception:
                 mask = None
 
-        if self.transform:
+        # Política assimétrica de transforms
+        if self.transform_light is not None:
+            # Modo treino: escolher transform baseado no label e tipo de imagem
+            if label == 0:
+                # Autêntica → sempre leve
+                image = self.transform_light(image)
+            elif is_augmented_image(img_path):
+                # Forjada já augmentada/sintética → leve (evita double augmentation)
+                image = self.transform_light(image)
+            else:
+                # Forjada original → augmentation completa
+                image = self.transform(image)
+        elif self.transform:
+            # Modo val/test: transform único (sem augmentation)
             image = self.transform(image)
 
         return image, label, mask

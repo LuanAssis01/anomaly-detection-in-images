@@ -23,15 +23,17 @@ class CNNModel(nn.Module):
         # Remover a última camada FC
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
         
-        # Cabeça de classificação customizada
+        # Cabeça de classificação customizada (com BatchNorm para estabilizar treino)
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(feature_dim, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.2),
             nn.Linear(256, num_classes)
         )
         
