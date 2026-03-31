@@ -3,7 +3,12 @@
     "allow": [
       "Bash(find /c/Users/Luan/Documents/anomaly-detection-in-images -type f -name *.md)",
       "Bash(ls -d /c/Users/Luan/Documents/anomaly-detection-in-images/data/train_images/*/)",
-      "Bash(ls -d /c/Users/Luan/Documents/anomaly-detection-in-images/data/scenarios/*/)"
+      "Bash(ls -d /c/Users/Luan/Documents/anomaly-detection-in-images/data/scenarios/*/)",
+      "Bash(sed 's/_[0-9]*\\\\.jpg//')",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(venvScriptspython.exe -c \":*)",
+      "Bash(pip install:*)"
     ]
   }
 }

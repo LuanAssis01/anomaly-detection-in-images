@@ -42,7 +42,7 @@ SCENARIOS = {
 }
 
 # Parâmetros de treinamento
-BATCH_SIZE = 8  # Reduzido de 16: resolução 384x384 usa ~3x mais VRAM que 224x224
+BATCH_SIZE = 6  # Reduzido: resolução 518x518 usa ~1.8x mais VRAM que 384x384
 NUM_EPOCHS = 30
 LEARNING_RATE = 1e-4
 DEVICE = 'cuda'  # 'cuda' ou 'cpu'
@@ -54,7 +54,7 @@ GRADIENT_ACCUMULATION_STEPS = 2   # batch efetivo = 8*2 = 16 (compensa redução
 USE_COMPILE = False                # torch.compile() — funde operações para execução mais rápida
 
 # Parâmetros das imagens
-IMAGE_SIZE = 384  # Aumentado: falsificações sutis (~2% da área) precisam de mais resolução
+IMAGE_SIZE = 518  # 518 = 14×37 — resolução nativa do DINOv2 (patch_size=14), evita interpolação de embeddings
 NUM_CLASSES = 2  # authentic vs forged
 
 # Pesos das classes para penalizar Falsos Negativos (forged não detectado)
