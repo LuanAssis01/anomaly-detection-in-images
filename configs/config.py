@@ -87,26 +87,26 @@ FINETUNE_CONFIGS = {
     'resnet50': {
         # Fase 1: treinar só o classificador (backbone ImageNet congelado)
         'phase1_epochs': 8,
-        'phase1_lr': 5e-4,
+        'phase1_lr': 6e-4,            # otimizado: search encontrou ~6e-4
         # Fase 2: fine-tuning completo com lr diferenciado
         'phase2_epochs': 40,
-        'phase2_backbone_lr': 2e-5,
-        'phase2_classifier_lr': 2e-4,
+        'phase2_backbone_lr': 7e-5,   # otimizado: era 2e-5, search encontrou 6-8e-5
+        'phase2_classifier_lr': 3e-4, # otimizado: era 2e-4
         'warmup_epochs': 3,
-        'weight_decay': 1e-4,
+        'weight_decay': 1e-3,         # otimizado: era 1e-4, search encontrou ~1e-3
         'label_smoothing': 0.05,
         'early_stopping_patience': 12,
-        # Pesos por classe: neutro para ResNet, evita colapso para forged
-        'class_weights': [1.0, 1.0],
+        # Pesos por classe: search consistentemente preferiu [1.0, 1.5]
+        'class_weights': [1.0, 1.5],
     },
     'dinov2': {
         'phase1_epochs': 12,
         'phase1_lr': 5e-4,
         'phase2_epochs': 35,
-        'phase2_backbone_lr': 5e-6,
-        'phase2_classifier_lr': 5e-5,
+        'phase2_backbone_lr': 2e-6,   # otimizado: era 5e-6, 2-3e-6 mais estável
+        'phase2_classifier_lr': 2e-4, # otimizado: era 5e-5, search encontrou ~1-4e-4
         'warmup_epochs': 4,
-        'weight_decay': 0.05,
+        'weight_decay': 2e-3,         # otimizado: era 0.05, search encontrou ~2e-3
         'label_smoothing': 0.05,
         'early_stopping_patience': 12,
         # Peso maior para forged: DINOv2 se beneficia de penalizar mais FN
