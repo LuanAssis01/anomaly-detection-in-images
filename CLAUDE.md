@@ -64,10 +64,14 @@ Fine-tuning em 2 fases:
            warmup linear + cosine annealing, early stopping
 
 Pipeline de dados:
-  ResNet-50: Imagem (384×384) → Backbone → MLP (2048→BN→512→BN→256→2) → logits
-  DINOv2:    Imagem (384×384) → Backbone → MLP (768→LN→768→LN→384→2) → logits
+  ResNet-50: Imagem (384×384 ou 518×518) → Backbone → MLP (2048→BN→512→BN→256→2) → logits
+  DINOv2:    Imagem (384×384 ou 518×518) → Backbone → MLP (768→LN→768→LN→384→2) → logits
   Loss: CrossEntropyLoss(weights=[1.0, 1.5], label_smoothing)
   Threshold de decisão: 0.4 (favorece recall)
+
+  Nota: 518×518 é a resolução nativa do DINOv2 (patch_size=14, 518=14×37), evitando
+  interpolação de positional embeddings. Ambas as resoluções foram experimentadas
+  para comparação — ver seção RESULTADOS.
 
 Augmentation no runtime (mesma política para todas as imagens de treino):
   - flips horizontal/vertical + rotação ±10° + ColorJitter leve
@@ -142,23 +146,25 @@ Funcionamento:
 
 🛠️ CONFIGURAÇÕES PRINCIPAIS (configs/config.py)
 -------------------------------------------------
-- BATCH_SIZE: 8 (efetivo 16 com GRADIENT_ACCUMULATION_STEPS=2)
-- IMAGE_SIZE: 384 (resolução alta para forgeries sutis)
+- BATCH_SIZE: 6 (efetivo 12 com GRADIENT_ACCUMULATION_STEPS=2) — reduzido para 518×518
+  (era 8/efetivo 16 com 384×384)
+- IMAGE_SIZE: 518 (resolução nativa DINOv2; 384 também foi experimentado)
 - USE_AMP: True (Mixed Precision FP16)
-- GRADIENT_ACCUMULATION_STEPS: 2 (batch efetivo = 8 × 2 = 16)
+- GRADIENT_ACCUMULATION_STEPS: 2
 - DECISION_THRESHOLD: 0.4 (favorece recall, usado em evaluate.py e app.py)
 
-ResNet-50 fine-tuning:
-  Fase 1: 8 épocas, LR 5e-4 (backbone congelado)
-  Fase 2: 40 épocas, backbone LR 2e-5, classifier LR 2e-4
-  Warmup: 3 épocas, label smoothing: 0.05, weight_decay: 1e-4
-  class_weights: [1.0, 1.0] — neutro, previne colapso para forged
+ResNet-50 fine-tuning (otimizado via Grid/Randomized Search):
+  Fase 1: 8 épocas, LR 6e-4 (backbone congelado)
+  Fase 2: 40 épocas, backbone LR 7e-5, classifier LR 3e-4
+  Warmup: 3 épocas, label smoothing: 0.05, weight_decay: 1e-3
+  class_weights: [1.0, 1.5]
 
-DINOv2 fine-tuning:
+DINOv2 fine-tuning (otimizado via Grid/Randomized Search):
   Fase 1: 12 épocas, LR 5e-4 (backbone congelado)
-  Fase 2: 35 épocas, backbone LR 5e-6, classifier LR 5e-5
-  Warmup: 4 épocas, label smoothing: 0.05, weight_decay: 0.05
-  class_weights: [1.0, 1.5] — penaliza mais FN de forged
+  Fase 2: 35 épocas, backbone LR 2e-6, classifier LR 2e-4
+  Warmup: 4 épocas, label smoothing: 0.05, weight_decay: 2e-3
+  class_weights: [1.0, 1.5]
+  ATENÇÃO: backbone_lr > 5e-6 causa colapso do DINOv2 (recall cai para ~0%)
 
 Data augmentation (runtime, mesma política para ambas as classes):
   flips (H+V), rotação ±10°, ColorJitter leve
@@ -178,11 +184,30 @@ Salvos automaticamente em:
 - checkpoints/<modelo>_<cenario>_best.pth    # Melhor modelo
 - checkpoints/<modelo>_<cenario>_split.json  # Índices do split
 
+Melhores resultados obtidos (IMAGE_SIZE=518, hiperparâmetros otimizados):
+  resnet50_no_augmentation  — Acc: 78.83%  F1: 0.8094  AUC: 0.8841
+  resnet50_no_synthetic     — Acc: 81.30%  F1: 0.8326  AUC: 0.9077
+  resnet50_with_synthetic   — Acc: 78.31%  F1: 0.8069  AUC: 0.8867
+  dinov2_no_augmentation    — Acc: 84.55%  F1: 0.8618  AUC: 0.9442
+  dinov2_no_synthetic       — Acc: 85.32%  F1: 0.8650  AUC: 0.9499  ← melhor DINOv2
+  dinov2_with_synthetic     — Acc: 84.94%  F1: 0.8632  AUC: 0.9382
+
+Observações experimentais relevantes:
+  - DINOv2 supera ResNet-50 em todas as métricas e cenários (~5pp F1, ~6pp AUC)
+  - 518×518 melhora DINOv2 consistentemente vs 384×384 (+0.6-1.9pp F1)
+  - 518×518 tem efeito misto no ResNet-50 (melhora no_synthetic, piora no_augmentation)
+  - with_synthetic é o pior ou igual ao no_synthetic para ambos os modelos
+    (forgeries sintéticas têm artefatos distintos das reais, prejudicando generalização)
+  - Hiperparâmetros otimizados via Grid/Randomized Search (ver results/*_search.json)
+
 ⚠️ REQUISITOS COMPUTACIONAIS
 -----------------------------
-- GPU: 8GB+ VRAM (RTX 3070 ou superior)
+- GPU: 8GB+ VRAM (testado em RTX 3060 12GB)
 - RAM: 16GB+
-- Tempo estimado: ~10-15 min por run (6 runs no total)
+- Tempo estimado por run (RTX 3060, IMAGE_SIZE=518):
+    ResNet-50: ~45-55 min por run
+    DINOv2:    ~2h-2h30 por run
+    Total 6 runs: ~9h
 
 📚 REFERÊNCIAS
 --------------
@@ -200,5 +225,5 @@ Salvos automaticamente em:
 - Dataset vazio: Rodar generate_data.py antes de treinar
 
 ================================================================================
-Última atualização: 2026-03-29
+Última atualização: 2026-04-01
 ================================================================================

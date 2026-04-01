@@ -45,9 +45,9 @@ def load_model(model_type: str, checkpoint_path: str, device):
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             pretrained=False
         )
-    elif model_type == 'dinov2':
+    elif model_type in ('dinov2', 'dinov2_large'):
         model = DINOv2Model(
-            model_name=MODEL_CONFIGS['dinov2']['model_name'],
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
         )
     else:
@@ -200,7 +200,7 @@ def print_metrics(model_name: str, scenario: str, metrics: dict):
 def main():
     parser = argparse.ArgumentParser(description='Avaliar modelos treinados')
     parser.add_argument('--model', type=str, default='all',
-                      choices=['all', 'resnet50', 'dinov2'],
+                      choices=['all', 'resnet50', 'dinov2', 'dinov2_large'],
                       help='Modelo a avaliar (default: all)')
     parser.add_argument('--scenario', type=str, default='all',
                       choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
@@ -219,7 +219,7 @@ def main():
     device = torch.device('cuda')
     print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    models_to_eval = ['resnet50', 'dinov2'] if args.model == 'all' else [args.model]
+    models_to_eval = ['resnet50', 'dinov2', 'dinov2_large'] if args.model == 'all' else [args.model]
     scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     all_results = {}

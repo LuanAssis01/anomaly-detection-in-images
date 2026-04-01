@@ -61,7 +61,7 @@ NUM_CLASSES = 2  # authentic vs forged
 # classe 0 = authentic, classe 1 = forged (peso maior = penaliza mais FN)
 CLASS_WEIGHTS = [1.0, 1.5]
 
-# Configurações dos modelos (apenas ResNet-50 e DINOv2)
+# Configurações dos modelos
 MODEL_CONFIGS = {
     'resnet50': {
         'name': 'ResNet-50',
@@ -69,10 +69,16 @@ MODEL_CONFIGS = {
         'num_classes': NUM_CLASSES
     },
     'dinov2': {
-        'name': 'DINOv2',
+        'name': 'DINOv2-Base',
         'model_name': 'facebook/dinov2-base',
         'num_classes': NUM_CLASSES
-    }
+    },
+    'dinov2_large': {
+        'name': 'DINOv2-Large',
+        'model_name': 'facebook/dinov2-large',
+        'num_classes': NUM_CLASSES,
+        'batch_size': 4,  # 307M params — menor batch para caber na VRAM com 518×518
+    },
 }
 
 # Proporções do split train/val/test (aplicadas sobre imagens originais)
@@ -109,7 +115,18 @@ FINETUNE_CONFIGS = {
         'weight_decay': 2e-3,         # otimizado: era 0.05, search encontrou ~2e-3
         'label_smoothing': 0.05,
         'early_stopping_patience': 12,
-        # Peso maior para forged: DINOv2 se beneficia de penalizar mais FN
+        'class_weights': [1.0, 1.5],
+    },
+    'dinov2_large': {
+        'phase1_epochs': 12,
+        'phase1_lr': 3e-4,            # menor que base: modelo maior, mais cuidado na fase 1
+        'phase2_epochs': 35,
+        'phase2_backbone_lr': 1e-6,   # mais conservador que base (2e-6) — 307M params
+        'phase2_classifier_lr': 2e-4,
+        'warmup_epochs': 5,           # mais warmup por ser modelo maior
+        'weight_decay': 2e-3,
+        'label_smoothing': 0.05,
+        'early_stopping_patience': 12,
         'class_weights': [1.0, 1.5],
     },
 }
