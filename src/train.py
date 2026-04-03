@@ -141,8 +141,8 @@ def validate_epoch(model, dataloader, criterion, device, use_amp=False):
 
 
 def create_model(model_type, device):
-    """Cria modelo ResNet-50, DINOv2-Base ou DINOv2-Large"""
-    if model_type == 'resnet50':
+    """Cria modelo ResNet-50, ResNet-101, DINOv2-Base ou DINOv2-Large"""
+    if model_type in ('resnet50', 'resnet101'):
         model = CNNModel(
             num_classes=NUM_CLASSES,
             model_name=MODEL_CONFIGS[model_type]['model_name'],
@@ -549,8 +549,8 @@ def print_summary(results):
 def main():
     parser = argparse.ArgumentParser(description='Treinar ResNet-50 e DINOv2 para detecção de falsificação')
     parser.add_argument('--model', type=str, default='all',
-                      choices=['all', 'resnet50', 'dinov2', 'dinov2_large'],
-                      help='Modelo a treinar (default: all = resnet50 + dinov2 + dinov2_large)')
+                      choices=['all', 'resnet50', 'resnet101', 'dinov2', 'dinov2_large'],
+                      help='Modelo a treinar (default: all = todos os modelos)')
     parser.add_argument('--scenario', type=str, default='all',
                       choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
                       help='Cenário de dados (default: all = todos os 3 cenários)')
@@ -565,7 +565,7 @@ def main():
 
     set_seed(RANDOM_SEED)
 
-    models_to_train = ['resnet50', 'dinov2', 'dinov2_large'] if args.model == 'all' else [args.model]
+    models_to_train = ['resnet50', 'resnet101', 'dinov2', 'dinov2_large'] if args.model == 'all' else [args.model]
     scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     print(f"\nModelos:   {models_to_train}")

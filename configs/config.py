@@ -68,6 +68,11 @@ MODEL_CONFIGS = {
         'model_name': 'resnet50',
         'num_classes': NUM_CLASSES
     },
+    'resnet101': {
+        'name': 'ResNet-101',
+        'model_name': 'resnet101',
+        'num_classes': NUM_CLASSES
+    },
     'dinov2': {
         'name': 'DINOv2-Base',
         'model_name': 'facebook/dinov2-base',
@@ -90,6 +95,18 @@ DECISION_THRESHOLD = 0.4
 
 # Configurações de fine-tuning específicas por modelo (apenas ResNet-50 e DINOv2)
 FINETUNE_CONFIGS = {
+    'resnet101': {
+        'phase1_epochs': 8,
+        'phase1_lr': 6e-4,
+        'phase2_epochs': 40,
+        'phase2_backbone_lr': 5e-5,   # menor que resnet50 (7e-5): modelo maior, mais cuidado
+        'phase2_classifier_lr': 3e-4,
+        'warmup_epochs': 3,
+        'weight_decay': 1e-3,
+        'label_smoothing': 0.05,
+        'early_stopping_patience': 12,
+        'class_weights': [1.0, 1.5],
+    },
     'resnet50': {
         # Fase 1: treinar só o classificador (backbone ImageNet congelado)
         'phase1_epochs': 8,
