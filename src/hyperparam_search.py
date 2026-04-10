@@ -42,7 +42,7 @@ from utils.dataset import (
     TransformSubset, stratified_train_val_test_split, save_split
 )
 from utils.metrics import calculate_metrics, AverageMeter
-from models import CNNModel, DINOv2Model
+from models import CNNModel, DINOv2Model, DINOv3Model
 
 
 # ============================================================================
@@ -54,6 +54,24 @@ SEARCH_SPACES = {
         'grid': {
             'phase1_lr': [3e-4, 5e-4, 1e-3],
             'phase2_backbone_lr': [1e-5, 2e-5, 5e-5],
+            'phase2_classifier_lr': [1e-4, 2e-4, 5e-4],
+            'weight_decay': [1e-4, 5e-4, 1e-3],
+            'label_smoothing': [0.05, 0.1],
+            'class_weights_1': [1.0, 1.3, 1.5],
+        },
+        'random': {
+            'phase1_lr': ('log_uniform', 1e-4, 2e-3),
+            'phase2_backbone_lr': ('log_uniform', 5e-6, 1e-4),
+            'phase2_classifier_lr': ('log_uniform', 5e-5, 1e-3),
+            'weight_decay': ('log_uniform', 1e-5, 1e-2),
+            'label_smoothing': ('uniform', 0.0, 0.15),
+            'class_weights_1': ('uniform', 0.8, 2.0),
+        },
+    },
+    'resnet101': {
+        'grid': {
+            'phase1_lr': [3e-4, 5e-4, 1e-3],
+            'phase2_backbone_lr': [5e-6, 1e-5, 5e-5],
             'phase2_classifier_lr': [1e-4, 2e-4, 5e-4],
             'weight_decay': [1e-4, 5e-4, 1e-3],
             'label_smoothing': [0.05, 0.1],
@@ -86,12 +104,90 @@ SEARCH_SPACES = {
             'class_weights_1': ('uniform', 0.8, 2.0),
         },
     },
+    'dinov2_large': {
+        'grid': {
+            'phase1_lr': [2e-4, 3e-4, 5e-4],
+            'phase2_backbone_lr': [5e-7, 1e-6, 2e-6],
+            'phase2_classifier_lr': [3e-5, 5e-5, 1e-4],
+            'weight_decay': [0.01, 0.05, 0.1],
+            'label_smoothing': [0.05, 0.1],
+            'class_weights_1': [1.0, 1.3, 1.5],
+        },
+        'random': {
+            'phase1_lr': ('log_uniform', 5e-5, 5e-4),
+            'phase2_backbone_lr': ('log_uniform', 2e-7, 5e-6),
+            'phase2_classifier_lr': ('log_uniform', 1e-5, 3e-4),
+            'weight_decay': ('log_uniform', 1e-3, 0.2),
+            'label_smoothing': ('uniform', 0.0, 0.15),
+            'class_weights_1': ('uniform', 0.8, 2.0),
+        },
+    },
+    # DINOv3 — mesmo risco de colapso que DINOv2; backbone_lr baixo é crítico
+    'dinov3': {
+        'grid': {
+            'phase1_lr': [3e-4, 5e-4, 8e-4],
+            'phase2_backbone_lr': [1e-6, 2e-6, 5e-6],
+            'phase2_classifier_lr': [1e-4, 2e-4, 4e-4],
+            'weight_decay': [1e-3, 2e-3, 5e-3],
+            'label_smoothing': [0.05, 0.1],
+            'class_weights_1': [1.0, 1.3, 1.5],
+        },
+        'random': {
+            'phase1_lr': ('log_uniform', 1e-4, 2e-3),
+            'phase2_backbone_lr': ('log_uniform', 5e-7, 1e-5),
+            'phase2_classifier_lr': ('log_uniform', 5e-5, 5e-4),
+            'weight_decay': ('log_uniform', 5e-4, 1e-2),
+            'label_smoothing': ('uniform', 0.0, 0.15),
+            'class_weights_1': ('uniform', 0.8, 2.0),
+        },
+    },
+    'dinov3_small': {
+        'grid': {
+            'phase1_lr': [4e-4, 6e-4, 1e-3],
+            'phase2_backbone_lr': [1e-6, 3e-6, 5e-6],
+            'phase2_classifier_lr': [1e-4, 2e-4, 4e-4],
+            'weight_decay': [1e-3, 2e-3, 5e-3],
+            'label_smoothing': [0.05, 0.1],
+            'class_weights_1': [1.0, 1.3, 1.5],
+        },
+        'random': {
+            'phase1_lr': ('log_uniform', 1e-4, 2e-3),
+            'phase2_backbone_lr': ('log_uniform', 5e-7, 1e-5),
+            'phase2_classifier_lr': ('log_uniform', 5e-5, 5e-4),
+            'weight_decay': ('log_uniform', 5e-4, 1e-2),
+            'label_smoothing': ('uniform', 0.0, 0.15),
+            'class_weights_1': ('uniform', 0.8, 2.0),
+        },
+    },
+    'dinov3_large': {
+        'grid': {
+            'phase1_lr': [2e-4, 3e-4, 5e-4],
+            'phase2_backbone_lr': [5e-7, 1e-6, 2e-6],
+            'phase2_classifier_lr': [1e-4, 2e-4, 4e-4],
+            'weight_decay': [1e-3, 2e-3, 5e-3],
+            'label_smoothing': [0.05, 0.1],
+            'class_weights_1': [1.0, 1.3, 1.5],
+        },
+        'random': {
+            'phase1_lr': ('log_uniform', 5e-5, 5e-4),
+            'phase2_backbone_lr': ('log_uniform', 2e-7, 5e-6),
+            'phase2_classifier_lr': ('log_uniform', 5e-5, 5e-4),
+            'weight_decay': ('log_uniform', 5e-4, 1e-2),
+            'label_smoothing': ('uniform', 0.0, 0.15),
+            'class_weights_1': ('uniform', 0.8, 2.0),
+        },
+    },
 }
 
 # Épocas reduzidas para busca rápida
 SEARCH_EPOCHS = {
-    'resnet50': {'phase1': 3, 'phase2': 8},
-    'dinov2': {'phase1': 4, 'phase2': 8},
+    'resnet50':     {'phase1': 3, 'phase2': 8},
+    'resnet101':    {'phase1': 3, 'phase2': 8},
+    'dinov2':       {'phase1': 4, 'phase2': 8},
+    'dinov2_large': {'phase1': 4, 'phase2': 8},
+    'dinov3_small': {'phase1': 4, 'phase2': 8},
+    'dinov3':       {'phase1': 4, 'phase2': 8},
+    'dinov3_large': {'phase1': 4, 'phase2': 8},
 }
 
 
@@ -153,15 +249,20 @@ def generate_random_configs(search_space, n_iter):
 
 
 def create_model(model_type, device):
-    if model_type == 'resnet50':
+    if model_type in ('resnet50', 'resnet101'):
         model = CNNModel(
             num_classes=NUM_CLASSES,
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             pretrained=True
         )
-    elif model_type == 'dinov2':
+    elif model_type in ('dinov2', 'dinov2_large'):
         model = DINOv2Model(
-            model_name=MODEL_CONFIGS['dinov2']['model_name'],
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
+            num_classes=NUM_CLASSES
+        )
+    elif model_type in ('dinov3_small', 'dinov3', 'dinov3_large'):
+        model = DINOv3Model(
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
         )
     else:
@@ -212,35 +313,40 @@ def create_dataloaders(scenario, model_type, batch_size):
     return train_loader, val_loader
 
 
-def train_epoch_fast(model, dataloader, criterion, optimizer, device, scaler=None):
-    """Treina uma época (versão simplificada sem progress bar para busca)."""
+def train_epoch_fast(model, dataloader, criterion, optimizer, device, scaler=None,
+                     accumulation_steps=1):
+    """Treina uma época com gradient accumulation (alinhado ao treino real)."""
     model.train()
     losses = AverageMeter()
     correct = 0
     total = 0
     use_amp = scaler is not None
 
-    for images, labels, _ in dataloader:
+    for step, (images, labels, _) in enumerate(dataloader):
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
         with torch.amp.autocast('cuda', enabled=use_amp):
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels) / accumulation_steps
 
-        optimizer.zero_grad(set_to_none=True)
         if use_amp:
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
         else:
             loss.backward()
-            optimizer.step()
+
+        if (step + 1) % accumulation_steps == 0 or (step + 1) == len(dataloader):
+            if use_amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
 
         _, predicted = torch.max(outputs.data, 1)
         correct += (predicted == labels).sum().item()
         total += labels.size(0)
-        losses.update(loss.item(), images.size(0))
+        losses.update(loss.item() * accumulation_steps, images.size(0))
 
     return losses.avg, correct / total * 100
 
@@ -263,7 +369,7 @@ def validate_fast(model, dataloader, criterion, device, use_amp=False):
                 loss = criterion(outputs, labels)
 
             probs = torch.softmax(outputs, dim=1)[:, 1]
-            _, predicted = torch.max(outputs.data, 1)
+            predicted = (probs >= DECISION_THRESHOLD).long()
 
             losses.update(loss.item(), images.size(0))
             all_labels.extend(labels.cpu().numpy())
@@ -288,6 +394,7 @@ def evaluate_config(model_type, config, train_loader, val_loader, device, trial_
     Usado para avaliar uma configuração de hiperparâmetros.
     """
     search_epochs = SEARCH_EPOCHS[model_type]
+    accumulation_steps = GRADIENT_ACCUMULATION_STEPS
 
     print(f"\n  Trial {trial_num}/{total_trials}: {config}")
 
@@ -316,7 +423,8 @@ def evaluate_config(model_type, config, train_loader, val_loader, device, trial_
     )
 
     for epoch in range(search_epochs['phase1']):
-        train_epoch_fast(model, train_loader, criterion, optimizer_p1, device, scaler)
+        train_epoch_fast(model, train_loader, criterion, optimizer_p1, device, scaler,
+                         accumulation_steps=accumulation_steps)
         scheduler_p1.step()
 
     # ===== Fase 2: Fine-tuning completo =====
@@ -340,7 +448,8 @@ def evaluate_config(model_type, config, train_loader, val_loader, device, trial_
 
     for epoch in range(phase2_epochs):
         train_loss, train_acc = train_epoch_fast(
-            model, train_loader, criterion, optimizer_p2, device, scaler
+            model, train_loader, criterion, optimizer_p2, device, scaler,
+            accumulation_steps=accumulation_steps
         )
         val_loss, val_metrics = validate_fast(
             model, val_loader, criterion, device, use_amp=USE_AMP
@@ -514,8 +623,10 @@ def main():
         description='Hyperparameter Search para modelos de detecção de anomalias'
     )
     parser.add_argument('--model', type=str, default='resnet50',
-                       choices=['all', 'resnet50', 'dinov2'],
-                       help='Modelo (default: resnet50)')
+                       choices=['all', 'dinov3_all', 'resnet50', 'resnet101',
+                                'dinov2', 'dinov2_large',
+                                'dinov3_small', 'dinov3', 'dinov3_large'],
+                       help='Modelo (default: resnet50; dinov3_all = só DINOv3)')
     parser.add_argument('--scenario', type=str, default='no_augmentation',
                        choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
                        help='Cenário (default: no_augmentation)')
@@ -527,7 +638,13 @@ def main():
 
     args = parser.parse_args()
 
-    models = ['resnet50', 'dinov2'] if args.model == 'all' else [args.model]
+    if args.model == 'all':
+        models = ['resnet50', 'resnet101', 'dinov2', 'dinov2_large',
+                  'dinov3_small', 'dinov3', 'dinov3_large']
+    elif args.model == 'dinov3_all':
+        models = ['dinov3_small', 'dinov3', 'dinov3_large']
+    else:
+        models = [args.model]
     scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     all_results = {}

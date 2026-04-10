@@ -8,7 +8,8 @@
       "Bash(python3 -c \":*)",
       "Bash(python -c \":*)",
       "Bash(venvScriptspython.exe -c \":*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(wc -l /home/luan/Documents/anomaly-detection-in-images/src/*.py /home/luan/Documents/anomaly-detection-in-images/models/*.py /home/luan/Documents/anomaly-detection-in-images/utils/*.py /home/luan/Documents/anomaly-detection-in-images/configs/config.py)"
     ]
   }
 }

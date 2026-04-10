@@ -4,14 +4,19 @@ LABORATÓRIO DE DETECÇÃO DE ANOMALIAS EM IMAGENS - TCC
 
 🎯 OBJETIVO
 -----------
-Comparar ResNet-50 (CNN) vs DINOv2 (Vision Transformer auto-supervisionado) para
-detecção de falsificações em imagens, em 3 cenários de dados, gerando resultados
+Comparar CNNs (ResNet) vs Vision Transformers auto-supervisionados (DINOv2, DINOv3)
+para detecção de falsificações em imagens, em 3 cenários de dados, gerando resultados
 experimentais para artigo científico de TCC.
 
 📊 MODELOS IMPLEMENTADOS
 -------------------------
-1. ResNet-50  — CNN clássica pré-treinada no ImageNet (baseline)
-2. DINOv2     — Self-supervised Vision Transformer (facebook/dinov2-base)
+1. ResNet-50       — CNN clássica pré-treinada no ImageNet (baseline)
+2. ResNet-101      — CNN maior, mesma abordagem
+3. DINOv2-Base     — Self-supervised ViT (facebook/dinov2-base)
+4. DINOv2-Large    — ViT maior, 307M params
+5. DINOv3-Small    — ViT-S/16 treinado no LVD-1689M (facebook/dinov3-vits16-pretrain-lvd1689m)
+6. DINOv3-Base     — ViT-B/16 treinado no LVD-1689M (facebook/dinov3-vitb16-pretrain-lvd1689m)
+7. DINOv3-Large    — ViT-L/16 treinado no LVD-1689M (facebook/dinov3-vitl16-pretrain-lvd1689m)
 
 📋 CENÁRIOS EXPERIMENTAIS
 --------------------------
@@ -19,7 +24,7 @@ experimentais para artigo científico de TCC.
 2. no_synthetic    — imagens originais + augmentation offline para balancear classes
 3. with_synthetic  — originais + augmentation + forjadas sintéticas geradas de autênticas
 
-Total: 2 modelos × 3 cenários = 6 runs experimentais.
+Total atual: 7 modelos × 3 cenários = 21 runs experimentais possíveis.
 
 🗂️ ESTRUTURA DO PROJETO
 ------------------------
@@ -41,8 +46,8 @@ anomaly-detection-in-images/
 │   ├── analysis_notebook.py     # Análise comparativa
 │   └── app.py                   # Demo interativa
 ├── models/                      # Implementações dos modelos
-│   ├── cnn_model.py             # ResNet-50 (backbone + classifier MLP)
-│   └── dino_model.py            # DINOv2 (HuggingFace + classifier)
+│   ├── cnn_model.py             # ResNet-50/101 (backbone + classifier MLP)
+│   └── dino_model.py            # DINOv2Model + DINOv3Model (HuggingFace + classifier)
 ├── utils/                       # Utilitários
 │   ├── dataset.py               # Dataset, transforms, split estratificado
 │   ├── metrics.py               # Métricas de avaliação
@@ -64,14 +69,18 @@ Fine-tuning em 2 fases:
            warmup linear + cosine annealing, early stopping
 
 Pipeline de dados:
-  ResNet-50: Imagem (384×384 ou 518×518) → Backbone → MLP (2048→BN→512→BN→256→2) → logits
-  DINOv2:    Imagem (384×384 ou 518×518) → Backbone → MLP (768→LN→768→LN→384→2) → logits
+  ResNet-50/101: Imagem → Backbone → MLP (2048→BN→512→BN→256→2) → logits
+  DINOv2:        Imagem → Backbone → MLP (768→LN→768→LN→384→2) → logits
+  DINOv3-Small:  Imagem → Backbone → MLP (384→LN→384→LN→192→2) → logits
+  DINOv3-Base:   Imagem → Backbone → MLP (768→LN→768→LN→384→2) → logits
+  DINOv3-Large:  Imagem → Backbone → MLP (1024→LN→1024→LN→512→2) → logits
   Loss: CrossEntropyLoss(weights=[1.0, 1.5], label_smoothing)
   Threshold de decisão: 0.4 (favorece recall)
 
-  Nota: 518×518 é a resolução nativa do DINOv2 (patch_size=14, 518=14×37), evitando
-  interpolação de positional embeddings. Ambas as resoluções foram experimentadas
-  para comparação — ver seção RESULTADOS.
+  Nota sobre resolução:
+  - DINOv2 patch_size=14: resolução nativa 518×518 (14×37), evita interpolação
+  - DINOv3 patch_size=16: qualquer resolução funciona com interpolate_pos_encoding=True
+  - DINOv3 carregado via AutoModel (suporta small/base/large automaticamente)
 
 Augmentation no runtime (mesma política para todas as imagens de treino):
   - flips horizontal/vertical + rotação ±10° + ColorJitter leve
@@ -104,16 +113,19 @@ Split 3-way estratificado:
 
 4. TREINAR MODELOS:
    python src/train.py --model resnet50 --scenario no_augmentation
-   python src/train.py --model resnet50 --scenario no_synthetic
    python src/train.py --model dinov2 --scenario with_synthetic
-   python src/train.py --model all --scenario all    # Todos os 6 runs
+   python src/train.py --model dinov3 --scenario no_augmentation
+   python src/train.py --model dinov3_all --scenario all   # Só DINOv3, todos os cenários
+   python src/train.py --model all --scenario all           # Todos os modelos e cenários
 
 5. HYPERPARAMETER SEARCH (opcional, antes de treinar):
    python src/hyperparam_search.py --model resnet50 --scenario no_augmentation --method grid
    python src/hyperparam_search.py --model dinov2 --scenario no_augmentation --method random --n-iter 20
+   python src/hyperparam_search.py --model dinov3_all --scenario all --method random --n-iter 20
    python src/hyperparam_search.py --model all --scenario all --method grid
 
 6. AVALIAR MODELOS:
+   python src/evaluate.py --model dinov3_all --scenario all --visualize
    python src/evaluate.py --model all --scenario all --visualize
 
 7. DEMO INTERATIVA:
@@ -166,6 +178,12 @@ DINOv2 fine-tuning (otimizado via Grid/Randomized Search):
   class_weights: [1.0, 1.5]
   ATENÇÃO: backbone_lr > 5e-6 causa colapso do DINOv2 (recall cai para ~0%)
 
+DINOv3 fine-tuning (valores iniciais conservadores — otimizar via hyperparam_search):
+  DINOv3-Small: Fase 1: 10 épocas LR 6e-4 | Fase 2: 35 épocas backbone 3e-6, classifier 2e-4
+  DINOv3-Base:  Fase 1: 12 épocas LR 5e-4 | Fase 2: 35 épocas backbone 2e-6, classifier 2e-4
+  DINOv3-Large: Fase 1: 12 épocas LR 3e-4 | Fase 2: 35 épocas backbone 1e-6, classifier 2e-4
+  ATENÇÃO: mesmo risco de colapso do DINOv2 — manter backbone_lr abaixo de 5e-6
+
 Data augmentation (runtime, mesma política para ambas as classes):
   flips (H+V), rotação ±10°, ColorJitter leve
   Sem GaussianBlur/GaussianNoise/RandomErasing — criam distribuição
@@ -192,13 +210,18 @@ Melhores resultados obtidos (IMAGE_SIZE=518, hiperparâmetros otimizados):
   dinov2_no_synthetic       — Acc: 85.32%  F1: 0.8650  AUC: 0.9499  ← melhor DINOv2
   dinov2_with_synthetic     — Acc: 84.94%  F1: 0.8632  AUC: 0.9382
 
-Observações experimentais relevantes:
+Observações experimentais relevantes (ResNet/DINOv2):
   - DINOv2 supera ResNet-50 em todas as métricas e cenários (~5pp F1, ~6pp AUC)
   - 518×518 melhora DINOv2 consistentemente vs 384×384 (+0.6-1.9pp F1)
   - 518×518 tem efeito misto no ResNet-50 (melhora no_synthetic, piora no_augmentation)
   - with_synthetic é o pior ou igual ao no_synthetic para ambos os modelos
     (forgeries sintéticas têm artefatos distintos das reais, prejudicando generalização)
   - Hiperparâmetros otimizados via Grid/Randomized Search (ver results/*_search.json)
+
+DINOv3 — resultados pendentes (modelos adicionados em 2026-04-10):
+
+  - Rodar hyperparam_search antes do treino completo (backbone_lr é crítico)
+  - Comparar small/base/large para custo-benefício de VRAM vs performance
 
 ⚠️ REQUISITOS COMPUTACIONAIS
 -----------------------------

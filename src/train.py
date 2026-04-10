@@ -31,7 +31,7 @@ from utils.dataset import (
     TransformSubset, stratified_train_val_test_split, save_split
 )
 from utils.metrics import calculate_metrics, AverageMeter
-from models import CNNModel, DINOv2Model
+from models import CNNModel, DINOv2Model, DINOv3Model
 
 
 def format_time(seconds):
@@ -121,7 +121,7 @@ def validate_epoch(model, dataloader, criterion, device, use_amp=False):
                 loss = criterion(outputs, labels)
 
             probs = torch.softmax(outputs, dim=1)[:, 1]
-            _, predicted = torch.max(outputs.data, 1)
+            predicted = (probs >= DECISION_THRESHOLD).long()
 
             losses.update(loss.item(), images.size(0))
 
@@ -141,7 +141,7 @@ def validate_epoch(model, dataloader, criterion, device, use_amp=False):
 
 
 def create_model(model_type, device):
-    """Cria modelo ResNet-50, ResNet-101, DINOv2-Base ou DINOv2-Large"""
+    """Cria modelo ResNet-50, ResNet-101, DINOv2 ou DINOv3 (small/base/large)"""
     if model_type in ('resnet50', 'resnet101'):
         model = CNNModel(
             num_classes=NUM_CLASSES,
@@ -150,6 +150,11 @@ def create_model(model_type, device):
         )
     elif model_type in ('dinov2', 'dinov2_large'):
         model = DINOv2Model(
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
+            num_classes=NUM_CLASSES
+        )
+    elif model_type in ('dinov3_small', 'dinov3', 'dinov3_large'):
+        model = DINOv3Model(
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
         )
@@ -285,6 +290,7 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
         'val_metrics': []
     }
 
+    best_val_f1 = 0.0
     best_val_acc = 0.0
     best_epoch = 0
 
@@ -327,6 +333,7 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
             compiled_model, val_loader, criterion, device, use_amp=use_amp
         )
         val_acc = val_metrics['accuracy'] * 100
+        val_f1 = val_metrics['f1_score']
 
         scheduler_p1.step()
 
@@ -338,10 +345,11 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
 
         print(f"\n[Fase 1] Epoch {epoch}/{ft_cfg['phase1_epochs']}")
         print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-        print(f"  Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
-        print(f"  F1: {val_metrics['f1_score']:.4f} | LR: {optimizer_p1.param_groups[0]['lr']:.2e}")
+        print(f"  Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}% | F1: {val_f1:.4f}")
+        print(f"  LR: {optimizer_p1.param_groups[0]['lr']:.2e}")
 
-        if val_acc > best_val_acc:
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             best_val_acc = val_acc
             best_epoch = epoch
             checkpoint_path = os.path.join(CHECKPOINTS_DIR, f'{run_name}_best.pth')
@@ -349,14 +357,15 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'val_acc': val_acc,
+                'val_f1': val_f1,
                 'val_metrics': val_metrics,
                 'scenario': scenario,
                 'phase': 1
             }, checkpoint_path)
-            print(f"  Modelo salvo! (melhor acc: {best_val_acc:.2f}%)")
+            print(f"  Modelo salvo! (melhor F1: {best_val_f1:.4f} | Acc: {best_val_acc:.2f}%)")
 
     phase1_time = time.time() - phase1_start
-    print(f"\nFase 1 concluída em {format_time(phase1_time)}. Melhor acc: {best_val_acc:.2f}%")
+    print(f"\nFase 1 concluída em {format_time(phase1_time)}. Melhor F1: {best_val_f1:.4f} | Acc: {best_val_acc:.2f}%")
 
     # ========== FASE 2: Fine-tuning completo ==========
     print(f"\n{'─'*60}")
@@ -409,6 +418,7 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
             compiled_model, val_loader, criterion, device, use_amp=use_amp
         )
         val_acc = val_metrics['accuracy'] * 100
+        val_f1 = val_metrics['f1_score']
 
         scheduler_p2.step()
 
@@ -423,10 +433,11 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
 
         print(f"\n[Fase 2] Epoch {epoch}/{ft_cfg['phase2_epochs']} (global: {global_epoch})")
         print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-        print(f"  Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
-        print(f"  F1: {val_metrics['f1_score']:.4f} | Backbone LR: {backbone_lr:.2e} | Classifier LR: {classifier_lr:.2e}")
+        print(f"  Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}% | F1: {val_f1:.4f}")
+        print(f"  Backbone LR: {backbone_lr:.2e} | Classifier LR: {classifier_lr:.2e}")
 
-        if val_acc > best_val_acc:
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             best_val_acc = val_acc
             best_epoch = global_epoch
             no_improve_count = 0
@@ -436,11 +447,12 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer_p2.state_dict(),
                 'val_acc': val_acc,
+                'val_f1': val_f1,
                 'val_metrics': val_metrics,
                 'scenario': scenario,
                 'phase': 2
             }, checkpoint_path)
-            print(f"  Modelo salvo! (melhor acc: {best_val_acc:.2f}%)")
+            print(f"  Modelo salvo! (melhor F1: {best_val_f1:.4f} | Acc: {best_val_acc:.2f}%)")
         else:
             no_improve_count += 1
             print(f"  Sem melhora: {no_improve_count}/{early_stopping_patience}")
@@ -453,7 +465,7 @@ def train_model_finetuned(model_type: str, scenario: str, batch_size: int = BATC
 
     print(f"\n{'='*60}")
     print(f"Fine-tuning concluído!")
-    print(f"Melhor acurácia: {best_val_acc:.2f}% (Época {best_epoch})")
+    print(f"Melhor F1: {best_val_f1:.4f} | Acc: {best_val_acc:.2f}% (Época {best_epoch})")
     print(f"Tempo fase 1: {format_time(phase1_time)}")
     print(f"Tempo fase 2: {format_time(phase2_time)}")
     print(f"Tempo total:  {format_time(total_train_time)}")
@@ -549,8 +561,10 @@ def print_summary(results):
 def main():
     parser = argparse.ArgumentParser(description='Treinar ResNet-50 e DINOv2 para detecção de falsificação')
     parser.add_argument('--model', type=str, default='all',
-                      choices=['all', 'resnet50', 'resnet101', 'dinov2', 'dinov2_large'],
-                      help='Modelo a treinar (default: all = todos os modelos)')
+                      choices=['all', 'dinov3_all', 'resnet50', 'resnet101',
+                               'dinov2', 'dinov2_large',
+                               'dinov3_small', 'dinov3', 'dinov3_large'],
+                      help='Modelo a treinar (default: all = todos; dinov3_all = só DINOv3)')
     parser.add_argument('--scenario', type=str, default='all',
                       choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
                       help='Cenário de dados (default: all = todos os 3 cenários)')
@@ -565,7 +579,13 @@ def main():
 
     set_seed(RANDOM_SEED)
 
-    models_to_train = ['resnet50', 'resnet101', 'dinov2', 'dinov2_large'] if args.model == 'all' else [args.model]
+    if args.model == 'all':
+        models_to_train = ['resnet50', 'resnet101', 'dinov2', 'dinov2_large',
+                           'dinov3_small', 'dinov3', 'dinov3_large']
+    elif args.model == 'dinov3_all':
+        models_to_train = ['dinov3_small', 'dinov3', 'dinov3_large']
+    else:
+        models_to_train = [args.model]
     scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     print(f"\nModelos:   {models_to_train}")

@@ -24,7 +24,7 @@ from utils.dataset import (
 )
 from utils.metrics import calculate_metrics
 from utils.visualization import plot_confusion_matrix, visualize_predictions
-from models import CNNModel, DINOv2Model
+from models import CNNModel, DINOv2Model, DINOv3Model
 
 
 def format_time(seconds):
@@ -47,6 +47,11 @@ def load_model(model_type: str, checkpoint_path: str, device):
         )
     elif model_type in ('dinov2', 'dinov2_large'):
         model = DINOv2Model(
+            model_name=MODEL_CONFIGS[model_type]['model_name'],
+            num_classes=NUM_CLASSES
+        )
+    elif model_type in ('dinov3_small', 'dinov3', 'dinov3_large'):
+        model = DINOv3Model(
             model_name=MODEL_CONFIGS[model_type]['model_name'],
             num_classes=NUM_CLASSES
         )
@@ -200,7 +205,9 @@ def print_metrics(model_name: str, scenario: str, metrics: dict):
 def main():
     parser = argparse.ArgumentParser(description='Avaliar modelos treinados')
     parser.add_argument('--model', type=str, default='all',
-                      choices=['all', 'resnet50', 'resnet101', 'dinov2', 'dinov2_large'],
+                      choices=['all', 'dinov3_all', 'resnet50', 'resnet101',
+                               'dinov2', 'dinov2_large',
+                               'dinov3_small', 'dinov3', 'dinov3_large'],
                       help='Modelo a avaliar (default: all)')
     parser.add_argument('--scenario', type=str, default='all',
                       choices=['all', 'no_augmentation', 'no_synthetic', 'with_synthetic'],
@@ -219,7 +226,13 @@ def main():
     device = torch.device('cuda')
     print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    models_to_eval = ['resnet50', 'resnet101', 'dinov2', 'dinov2_large'] if args.model == 'all' else [args.model]
+    if args.model == 'all':
+        models_to_eval = ['resnet50', 'resnet101', 'dinov2', 'dinov2_large',
+                          'dinov3_small', 'dinov3', 'dinov3_large']
+    elif args.model == 'dinov3_all':
+        models_to_eval = ['dinov3_small', 'dinov3', 'dinov3_large']
+    else:
+        models_to_eval = [args.model]
     scenarios = ['no_augmentation', 'no_synthetic', 'with_synthetic'] if args.scenario == 'all' else [args.scenario]
 
     all_results = {}

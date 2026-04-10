@@ -50,11 +50,11 @@ NUM_WORKERS = 4  # Workers paralelos para carregar dados (0 = sequencial, lento)
 
 # Otimizações de performance (GPU)
 USE_AMP = True                    # Mixed Precision (FP16) — ~2x mais rápido com Tensor Cores
-GRADIENT_ACCUMULATION_STEPS = 2   # batch efetivo = 8*2 = 16 (compensa redução do batch size)
+GRADIENT_ACCUMULATION_STEPS = 2   # batch efetivo = 6*2 = 12 (compensa redução do batch size)
 USE_COMPILE = False                # torch.compile() — funde operações para execução mais rápida
 
 # Parâmetros das imagens
-IMAGE_SIZE = 518  # 518 = 14×37 — resolução nativa do DINOv2 (patch_size=14), evita interpolação de embeddings
+IMAGE_SIZE = 384  # 518 = 14×37 — resolução nativa do DINOv2 (patch_size=14), evita interpolação de embeddings
 NUM_CLASSES = 2  # authentic vs forged
 
 # Pesos das classes para penalizar Falsos Negativos (forged não detectado)
@@ -83,6 +83,22 @@ MODEL_CONFIGS = {
         'model_name': 'facebook/dinov2-large',
         'num_classes': NUM_CLASSES,
         'batch_size': 4,  # 307M params — menor batch para caber na VRAM com 518×518
+    },
+    'dinov3_small': {
+        'name': 'DINOv3-Small',
+        'model_name': 'facebook/dinov3-vits16-pretrain-lvd1689m',
+        'num_classes': NUM_CLASSES,
+    },
+    'dinov3': {
+        'name': 'DINOv3-Base',
+        'model_name': 'facebook/dinov3-vitb16-pretrain-lvd1689m',
+        'num_classes': NUM_CLASSES,
+    },
+    'dinov3_large': {
+        'name': 'DINOv3-Large',
+        'model_name': 'facebook/dinov3-vitl16-pretrain-lvd1689m',
+        'num_classes': NUM_CLASSES,
+        'batch_size': 4,  # ViT-L — menor batch para caber na VRAM
     },
 }
 
@@ -141,6 +157,44 @@ FINETUNE_CONFIGS = {
         'phase2_backbone_lr': 1e-6,   # mais conservador que base (2e-6) — 307M params
         'phase2_classifier_lr': 2e-4,
         'warmup_epochs': 5,           # mais warmup por ser modelo maior
+        'weight_decay': 2e-3,
+        'label_smoothing': 0.05,
+        'early_stopping_patience': 12,
+        'class_weights': [1.0, 1.5],
+    },
+    # DINOv3 — patch_size=16, treinado no LVD-1689M
+    # ATENÇÃO: backbone_lr muito alto causa colapso (recall ~0%), igual ao DINOv2
+    'dinov3_small': {
+        'phase1_epochs': 10,
+        'phase1_lr': 6e-4,            # ViT-S é menor, suporta LR um pouco maior
+        'phase2_epochs': 35,
+        'phase2_backbone_lr': 3e-6,   # ViT-S pode ter backbone_lr ligeiramente maior que base
+        'phase2_classifier_lr': 2e-4,
+        'warmup_epochs': 3,
+        'weight_decay': 2e-3,
+        'label_smoothing': 0.05,
+        'early_stopping_patience': 12,
+        'class_weights': [1.0, 1.5],
+    },
+    'dinov3': {
+        'phase1_epochs': 12,
+        'phase1_lr': 5e-4,
+        'phase2_epochs': 35,
+        'phase2_backbone_lr': 2e-6,   # conservador — mesmo risco de colapso que DINOv2
+        'phase2_classifier_lr': 2e-4,
+        'warmup_epochs': 4,
+        'weight_decay': 2e-3,
+        'label_smoothing': 0.05,
+        'early_stopping_patience': 12,
+        'class_weights': [1.0, 1.5],
+    },
+    'dinov3_large': {
+        'phase1_epochs': 12,
+        'phase1_lr': 3e-4,            # ViT-L: LR conservador na fase 1
+        'phase2_epochs': 35,
+        'phase2_backbone_lr': 1e-6,   # muito conservador — modelo grande
+        'phase2_classifier_lr': 2e-4,
+        'warmup_epochs': 5,
         'weight_decay': 2e-3,
         'label_smoothing': 0.05,
         'early_stopping_patience': 12,
