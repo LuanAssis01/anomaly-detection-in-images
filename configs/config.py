@@ -54,7 +54,7 @@ GRADIENT_ACCUMULATION_STEPS = 2   # batch efetivo = 6*2 = 12 (compensa redução
 USE_COMPILE = False                # torch.compile() — funde operações para execução mais rápida
 
 # Parâmetros das imagens
-IMAGE_SIZE = 384  # 518 = 14×37 — resolução nativa do DINOv2 (patch_size=14), evita interpolação de embeddings
+IMAGE_SIZE = 518  # 14×37 — resolução nativa do DINOv2 (patch_size=14), evita interpolação de embeddings
 NUM_CLASSES = 2  # authentic vs forged
 
 # Pesos das classes para penalizar Falsos Negativos (forged não detectado)

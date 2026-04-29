@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Script de início rápido — ResNet-50 e DINOv2 | 3 Cenários de Dados
+# Script de início rápido — ResNet-50, DINOv2 e DINOv3 | 3 Cenários de Dados
 
 echo "======================================================================"
 echo "LABORATÓRIO DE DETECÇÃO DE ANOMALIAS EM IMAGENS"
-echo "ResNet-50 e DINOv2 - 3 Cenários de Dados"
+echo "ResNet-50, DINOv2 e DINOv3 - 3 Cenários de Dados"
 echo "======================================================================"
 echo ""
 
@@ -48,6 +48,24 @@ echo "  13) Randomized Search - ResNet-50 (20 trials, todos cenários)"
 echo "  14) Randomized Search - DINOv2 (20 trials, todos cenários)"
 echo "  15) Grid Search - todos os modelos e cenários"
 echo ""
+echo "  --- DINOv3 — TREINAMENTO ---"
+echo "  20) Treinar DINOv3 (Small + Base + Large, todos cenários)"
+echo "  21) Treinar DINOv3-Small (todos cenários)"
+echo "  22) Treinar DINOv3-Base  (todos cenários)"
+echo "  23) Treinar DINOv3-Large (todos cenários)"
+echo "  24) Treinar DINOv3 - cenário SEM augmentation"
+echo "  25) Treinar DINOv3 - cenário COM augmentation, SEM sintéticas"
+echo "  26) Treinar DINOv3 - cenário COM sintéticas"
+echo ""
+echo "  --- DINOv3 — HYPERPARAMETER SEARCH ---"
+echo "  27) Randomized Search - DINOv3-Small (20 trials, todos cenários)"
+echo "  28) Randomized Search - DINOv3-Base  (20 trials, todos cenários)"
+echo "  29) Randomized Search - DINOv3-Large (20 trials, todos cenários)"
+echo "  30) Randomized Search - DINOv3 todos  (20 trials, todos cenários)"
+echo ""
+echo "  --- DINOv3 — AVALIAÇÃO ---"
+echo "  31) Avaliar DINOv3 (todos os modelos e cenários)"
+echo ""
 echo "  --- AVALIAÇÃO ---"
 echo "  16) Avaliar todos os modelos treinados"
 echo "  17) Executar análise comparativa"
@@ -59,7 +77,7 @@ echo ""
 echo "   0) Sair"
 echo ""
 
-read -p "Escolha uma opção [0-19]: " choice
+read -p "Escolha uma opção [0-31]: " choice
 
 case $choice in
     1)
@@ -170,6 +188,126 @@ case $choice in
         python src/evaluate.py --model all --scenario all --visualize
         echo ""
         echo "Pipeline completo finalizado!"
+        ;;
+    20)
+        echo ""
+        echo "Treinando DINOv3 (Small + Base + Large) em todos os cenários..."
+        python src/train.py --model dinov3_all --scenario all
+        ;;
+    21)
+        echo ""
+        echo "Treinando DINOv3-Small em todos os cenários..."
+        python src/train.py --model dinov3_small --scenario all
+        ;;
+    22)
+        echo ""
+        echo "Treinando DINOv3-Base em todos os cenários..."
+        python src/train.py --model dinov3 --scenario all
+        ;;
+    23)
+        echo ""
+        echo "Treinando DINOv3-Large em todos os cenários..."
+        python src/train.py --model dinov3_large --scenario all
+        ;;
+    24)
+        echo ""
+        echo "Treinando DINOv3 - cenário SEM augmentation..."
+        python src/train.py --model dinov3_all --scenario no_augmentation
+        ;;
+    25)
+        echo ""
+        echo "Treinando DINOv3 - cenário COM augmentation, SEM sintéticas..."
+        python src/train.py --model dinov3_all --scenario no_synthetic
+        ;;
+    26)
+        echo ""
+        echo "Treinando DINOv3 - cenário COM sintéticas..."
+        python src/train.py --model dinov3_all --scenario with_synthetic
+        ;;
+    27)
+        echo ""
+        echo "Randomized Search - DINOv3-Small (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3_small --scenario all --method random --n-iter 20
+        ;;
+    28)
+        echo ""
+        echo "Randomized Search - DINOv3-Base (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3 --scenario all --method random --n-iter 20
+        ;;
+    29)
+        echo ""
+        echo "Randomized Search - DINOv3-Large (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3_large --scenario all --method random --n-iter 20
+        ;;
+    30)
+        echo ""
+        echo "Randomized Search - DINOv3 todos (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3_all --scenario all --method random --n-iter 20
+        ;;
+    31)
+        echo ""
+        echo "Avaliando DINOv3 (todos os modelos e cenários)..."
+        python src/evaluate.py --model dinov3_all --scenario all --visualize
+        ;;
+    20)
+        echo ""
+        echo "Treinando DINOv3 (Small + Base + Large) em todos os cenários..."
+        python src/train.py --model dinov3_all --scenario all
+        ;;
+    21)
+        echo ""
+        echo "Treinando DINOv3-Small em todos os cenários..."
+        python src/train.py --model dinov3_small --scenario all
+        ;;
+    22)
+        echo ""
+        echo "Treinando DINOv3-Base em todos os cenários..."
+        python src/train.py --model dinov3 --scenario all
+        ;;
+    23)
+        echo ""
+        echo "Treinando DINOv3-Large em todos os cenários..."
+        python src/train.py --model dinov3_large --scenario all
+        ;;
+    24)
+        echo ""
+        echo "Treinando DINOv3 - cenário SEM augmentation..."
+        python src/train.py --model dinov3_all --scenario no_augmentation
+        ;;
+    25)
+        echo ""
+        echo "Treinando DINOv3 - cenário COM augmentation, SEM sintéticas..."
+        python src/train.py --model dinov3_all --scenario no_synthetic
+        ;;
+    26)
+        echo ""
+        echo "Treinando DINOv3 - cenário COM sintéticas..."
+        python src/train.py --model dinov3_all --scenario with_synthetic
+        ;;
+    27)
+        echo ""
+        echo "Randomized Search - DINOv3-Small (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3_small --scenario all --method random --n-iter 20
+        ;;
+    28)
+        echo ""
+        echo "Randomized Search - DINOv3-Base (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3 --scenario all --method random --n-iter 20
+        ;;
+    29)
+        echo ""
+        echo "Randomized Search - DINOv3-Large (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3_large --scenario all --method random --n-iter 20
+        ;;
+    30)
+        echo ""
+        echo "Randomized Search - DINOv3 todos (20 trials, todos cenários)..."
+        python src/hyperparam_search.py --model dinov3_all --scenario all --method random --n-iter 20
+        ;;
+    31)
+        echo ""
+        echo "Avaliando DINOv3 (todos os modelos e cenários)..."
+        python src/evaluate.py --model dinov3_all --scenario all --visualize
         ;;
     0)
         echo "Saindo..."
